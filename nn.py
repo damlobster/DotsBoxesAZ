@@ -4,5 +4,8 @@ import torch
 
 class NeuralNet():
   @classmethod
-  def evaluate(self, game_state):
+  def predict(self, game_state):
     return np.random.random(game_state.get_action_size()), np.random.random()
+
+  def train(self, X, policies, values):
+    pass
