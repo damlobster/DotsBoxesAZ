@@ -15,5 +15,8 @@ class GameState(object):
   def play(self, move):
     pass
 
+  def get_features(self):
+    pass
+
   def __hash__(self):
     pass

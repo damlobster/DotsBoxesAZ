@@ -14,7 +14,7 @@ class BoxesState(GameState):
     self.board = np.zeros((2, l+1, c+1))
     self.board[1, l, :] = 1e-12
     self.board[0, :, c] = 1e-12
-    self.player = None
+    self.player = 0
     self.next_player = 0
     win_thres = self.nb_boxes/2
     self.boxes_to_close = [win_thres, win_thres]
@@ -76,6 +76,11 @@ class BoxesState(GameState):
     new_state = copy.deepcopy(self)
     new_state.play_(move)
     return new_state
+
+  def get_features(self):
+    board = self.board
+    player = np.full_like(board[0], self.boxes_to_close[self.player])
+    return np.concatenate((board, np.expand_dims(player, 0)), axis=0)
 
   def _check_box(self, l, c):
     edges_idx = ((0, 0, 1, 1), (l, l+1, l, l), (c, c, c, c+1))
