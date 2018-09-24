@@ -15,7 +15,7 @@ class DummyNode(object):
 class UCTNode():
   __slots__ = ('game_state', 'move', 'is_expanded', 'parent', 'children', \
     'child_priors', 'child_total_value', 'child_number_visits', 'is_terminal')
-  def __init__(self, game_state, move, parent=None):
+  def __init__(self, game_state: GameState, move: int, parent=None):
     self.game_state = game_state
     self.move = move
     self.is_expanded = False
@@ -97,11 +97,13 @@ class UCTNode():
   def __hash__(self):
     return self.game_state.__hash__()
 
+def create_root_uct_node(game_state):
+  return UCTNode(game_state, move=None, parent=DummyNode())
 
-def UCT_search(game_state, num_reads, nn):
-  root = UCTNode(game_state, move=None, parent=DummyNode())
+def UCT_search(root_node: UCTNode, num_reads, nn):
+  root_node.parent = DummyNode()
   for _ in range(num_reads):
-    leaf = root.select_leaf()
+    leaf = root_node.select_leaf()
     if not leaf.is_terminal:
       child_priors, value_estimate = nn(leaf.game_state)
     else:
@@ -109,4 +111,5 @@ def UCT_search(game_state, num_reads, nn):
 
     leaf.expand(child_priors * leaf.game_state.get_valid_moves(as_indices=False))
     leaf.backup(value_estimate)
-  return root.child_number_visits
+
+  return root_node.child_number_visits
