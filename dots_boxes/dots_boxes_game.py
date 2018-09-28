@@ -6,22 +6,30 @@ import random
 
 class BoxesState(GameState):
   __slots__ = 'hash', 'nb_boxes', 'board', 'player', 'next_player', 'boxes_to_close'
+  BOARD_DIM = (3,3)
+  NB_ACTIONS = None
+  NB_BOXES = None
+  
+  @staticmethod
+  def set_board_dim(bsize=(3,3)):
+    BoxesState.BOARD_DIM = bsize
+    x, y = bsize
+    BoxesState.NB_ACTIONS = 2 * (x+1) * (y+1)
+    BoxesState.NB_BOXES = x * y
 
-  def __init__(self, board_dim=(3, 3)):
-    l, c = board_dim
+  def __init__(self):
+    l, c = BoxesState.BOARD_DIM
     self.hash = (0, 0)
-    self.nb_boxes = l*c
     self.board = np.zeros((2, l+1, c+1))
     self.board[1, l, :] = 1e-12
     self.board[0, :, c] = 1e-12
     self.player = 0
     self.next_player = 0
-    win_thres = self.nb_boxes/2
+    win_thres = BoxesState.NB_BOXES/2
     self.boxes_to_close = [win_thres, win_thres]
 
   def get_actions_size(self):
-    p, l, c = self.board.shape
-    return p*l*c  # - (l+1) - (c+1)
+    return BoxesState.NB_ACTIONS
 
   def get_valid_moves(self, as_indices=False):
     m = self.board.ravel() == 0.0
@@ -124,41 +132,56 @@ class BoxesState(GameState):
       strings.append(s)
     return "\n".join(strings)
 
-  @staticmethod
-  def moves_to_string(moves, board_dim=(3, 3)):
-    g = BoxesState(board_dim)
-    boxes = [[" " for _ in range(board_dim[1])] for _ in range(board_dim[0])]
 
-    for m in moves:
-      just_closed_boxes = g.play_(m)
-      for l, c in just_closed_boxes:
-        boxes[l][c] = "0" if g.player == 0 else "1"
+def moves_to_string(moves, visits_counts=None):
+  g = BoxesState()
+  boxes = [[" " for _ in range(BoxesState.BOARD_DIM[1])]
+            for _ in range(BoxesState.BOARD_DIM[0])]
+  if visits_counts is not None:
+    sum = visits_counts.sum()
+    vc = visits_counts if sum == 0 else visits_counts/sum
 
-    b = g.board
-    strings = []
-    _, lines, cols = g.board.shape
-    strings.append("-"*30)
-    strings.append("Player = " + str(g.player))
-    strings.append("Next player = " + str(g.next_player))
-    strings.append("Boxes to close = " + str(g.boxes_to_close))
-    strings.append("Result = " + str(g.get_result()))
-    for l in range(lines):
-      s = "+"
-      for c in range(cols-1):
-        if b[0, l, c] == 1:
-          s += "---+"
-        else:
+  for m in moves:
+    just_closed_boxes = g.play_(m)
+    for l, c in just_closed_boxes:
+      boxes[l][c] = "0" if g.player == 0 else "1"
+
+  b = g.board
+  strings = []
+  _, lines, cols = g.board.shape
+  strings.append("-"*30)
+  strings.append("Player = " + str(g.player))
+  strings.append("Next player = " + str(g.next_player))
+  strings.append("Boxes to close = " + str(g.boxes_to_close))
+  strings.append("Result = " + str(g.get_result()))
+  for l in range(lines):
+    s = "+"
+    for c in range(cols-1):
+      if b[0, l, c] == 1:
+        s += "---+"
+      else:
+        if vc is None:
           s += "   +"
-      strings.append(s)
-      s = ''
-      if(l < lines-1):
-        for c in range(cols):
-          if b[1, l, c] == 1:
-            if c < cols-1:
-              s += "| " + boxes[l][c] + " "
-            else:
-              s += "|   "
+        else:
+          v = vc[np.ravel_multi_index((0, l, c), b.shape)]
+          count = 0 if np.isnan(v) else int(math.floor(10*v))
+          s += " {} +".format(count if count != 0 else " ")
+
+    strings.append(s)
+    s = ''
+    if(l < lines-1):
+      for c in range(cols):
+        if b[1, l, c] == 1:
+          if c < cols-1:
+            s += "| " + boxes[l][c] + " "
           else:
+            s += "|   "
+        else:
+          if vc is None:
             s += "    "
-      strings.append(s)
-    return "\n".join(strings)
+          else:
+            v = vc[np.ravel_multi_index((1, l, c), b.shape)]
+            count = 0 if np.isnan(v) else int(math.floor(10*v))
+            s += "{}   ".format(count if count != 0 else " ")
+    strings.append(s)
+  return "\n".join(strings)
