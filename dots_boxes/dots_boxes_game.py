@@ -5,31 +5,24 @@ import numpy as np
 import random
 
 class BoxesState(GameState):
-  __slots__ = 'hash', 'nb_boxes', 'board', 'player', 'next_player', 'boxes_to_close'
-  BOARD_DIM = (3,3)
-  NB_ACTIONS = None
-  NB_BOXES = None
-  
-  @staticmethod
-  def set_board_dim(bsize=(3,3)):
-    BoxesState.BOARD_DIM = bsize
-    x, y = bsize
-    BoxesState.NB_ACTIONS = 2 * (x+1) * (y+1)
-    BoxesState.NB_BOXES = x * y
+  __slots__ = 'BOARD_DIM', 'NB_ACTIONS', 'NB_BOXES', 'hash', 'board', 'player', 'next_player', 'boxes_to_close'  
 
-  def __init__(self):
-    l, c = BoxesState.BOARD_DIM
+  def __init__(self, bsize=(3,3)):
+    l, c = bsize
+    self.BOARD_DIM = bsize
+    self.NB_ACTIONS = 2 * (l+1) * (c+1)
+    self.NB_BOXES = l * c
     self.hash = (0, 0)
     self.board = np.zeros((2, l+1, c+1))
     self.board[1, l, :] = 1e-12
     self.board[0, :, c] = 1e-12
     self.player = 0
     self.next_player = 0
-    win_thres = BoxesState.NB_BOXES/2
+    win_thres = self.NB_BOXES/2
     self.boxes_to_close = [win_thres, win_thres]
 
   def get_actions_size(self):
-    return BoxesState.NB_ACTIONS
+    return self.NB_ACTIONS
 
   def get_valid_moves(self, as_indices=False):
     m = self.board.ravel() == 0.0
@@ -135,8 +128,8 @@ class BoxesState(GameState):
 
 def moves_to_string(moves, visits_counts=None):
   g = BoxesState()
-  boxes = [[" " for _ in range(BoxesState.BOARD_DIM[1])]
-            for _ in range(BoxesState.BOARD_DIM[0])]
+  boxes = [[" " for _ in range(g.BOARD_DIM[1])]
+            for _ in range(g.BOARD_DIM[0])]
   if visits_counts is not None:
     sum = visits_counts.sum()
     vc = visits_counts if sum == 0 else visits_counts/sum
