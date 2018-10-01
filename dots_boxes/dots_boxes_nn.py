@@ -1,7 +1,7 @@
 import torch
 import utils
 from game import GameState
-from nn import NeuralNet,ResBlock, ResNet, PolicyHead, ValueHead
+from nn import NeuralNetWrapper, ResBlock, ResNet, PolicyHead, ValueHead
 
 params = utils.DotDict({
   "nn": {
@@ -26,7 +26,7 @@ params = utils.DotDict({
   }
 })
 
-class DotsNN(NeuralNet):
+class DotsNN(NeuralNetWrapper):
   def __init__(self, checkpoint=None):
     self.resnet = None
     self.policy_head = None
