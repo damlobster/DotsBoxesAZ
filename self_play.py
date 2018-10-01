@@ -4,10 +4,10 @@ import utils
 import mcts
 
 params = utils.DotDict({
-    "num_games": 10,
+    "num_games": 1000,
     "reuse_mcts_tree": True,
     "noise": (1.0, 0.25),  # alpha, coeff
-    "mcts_num_read": 100,
+    "mcts_num_read": 500,
     "temperature": 1.0 #1e-50,
 })
 
@@ -48,8 +48,10 @@ class SelfPlay(object):
     moves_sequence.append(root_node)
     self.played_games.append((moves_sequence, root_node.game_state.get_result())) 
 
-  def play_games(self, game_state, n_iters):
+  def play_games(self, game_state, n_iters, show_progress=False):
     for _ in range(n_iters):
+      if show_progress:
+        print(".", end="", flush=True)
       self.play_game(game_state)
 
   def get_training_data(self):
@@ -80,22 +82,32 @@ class SelfPlay(object):
 def test():
   from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
   sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
-  BoxesState.set_board_dim((3,3))
-  game_state = BoxesState()
+  game_state = BoxesState((3,3))
   sp.play_game(game_state)
   moves, visit_counts = sp.get_games_moves()
 
   for i in range(1, len(moves)+1):
     print(moves_to_string(moves[:i], visit_counts[i-1]))
-  
-def generate_games():
+
+def worker(n_games, j):
+  print(str(j))
   from dots_boxes.dots_boxes_game import BoxesState
+  game_state = BoxesState((3,3))
   sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
-  BoxesState.set_board_dim((3, 3))
-  game_state = BoxesState()
-  sp.play_games(game_state, params.num_games)
-  print(str(sp.get_training_data()))
+  sp.play_games(game_state, n_games, show_progress=True)
+  return sp.get_training_data()
+
+def generate_games():
+  import pickle
+  import multiprocessing as mp
+  with mp.Pool(mp.cpu_count()) as pool:
+    for i in range(1):
+      results = [pool.apply_async(worker, args=(100,j)) for j in range(20)]
+      data = [p.get() for p in results]
+      with open("./data/selfplay{}.pkl".format(i), "wb") as f:
+        pickle.dump(list(data), f)
+
 
 if __name__ == '__main__':
-  test()
-  #generate_game()
+  #test()
+  generate_games()
