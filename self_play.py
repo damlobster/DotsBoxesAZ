@@ -7,8 +7,8 @@ params = utils.DotDict({
     "num_games": 1000,
     "reuse_mcts_tree": True,
     "noise": (1.0, 0.25),  # alpha, coeff
-    "mcts_num_read": 500,
-    "temperature": 1.0 #1e-50,
+    "mcts_num_read": 1000,
+    "temperature": {0:1.0, 5:1e-50},
 })
 
 class SelfPlay(object):
@@ -21,12 +21,17 @@ class SelfPlay(object):
   def play_game(self, game_state):
     params = self.params
     alpha, coeff = params.noise
+    temperature = None
     
     moves_sequence = []
     root_node = mcts.create_root_uct_node(game_state)
+    i = 0
     while not root_node.is_terminal:
+      if i in params.temperature:
+        temperature = params.temperature[i]
+
       visit_counts = mcts.UCT_search(root_node, params.mcts_num_read, self.nn)
-      probs = (visit_counts/visit_counts.max()) ** (1/params.temperature)
+      probs = (visit_counts/visit_counts.max()) ** (1/temperature)
       
       probs = probs / probs.sum()
       valid_actions = root_node.game_state.get_valid_moves()
@@ -89,6 +94,15 @@ def test():
   for i in range(1, len(moves)+1):
     print(moves_to_string(moves[:i], visit_counts[i-1]))
 
+def test_randomness():
+  from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
+  for i in range(20):
+    sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
+    game_state = BoxesState((3, 3))
+    sp.play_game(game_state)
+    moves, visit_counts = sp.get_games_moves()
+    print(moves)
+
 def worker(n_games, j):
   print(str(j))
   from dots_boxes.dots_boxes_game import BoxesState
@@ -101,8 +115,8 @@ def generate_games():
   import pickle
   import multiprocessing as mp
   with mp.Pool(mp.cpu_count()) as pool:
-    for i in range(1):
-      results = [pool.apply_async(worker, args=(100,j)) for j in range(20)]
+    for i in range(5):
+      results = [pool.apply_async(worker, args=(1000,j)) for j in range(20)]
       data = [p.get() for p in results]
       with open("./data/selfplay{}.pkl".format(i), "wb") as f:
         pickle.dump(list(data), f)
@@ -110,4 +124,5 @@ def generate_games():
 
 if __name__ == '__main__':
   #test()
+  test_randomness()
   generate_games()
