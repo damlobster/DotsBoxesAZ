@@ -1,23 +1,21 @@
 import unittest
 import random
 import copy
-from dots_boxes.dots_boxes_game import BoxesState
+from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 
 class BoxesStateTest(unittest.TestCase):
   def setUp(self):
-    pass
+    BoxesState.set_board_dim((3,3))
 
   def test_hash(self):
-    l, c = 3, 3
-    state = BoxesState((l, c))
+    state = BoxesState()
     state1 = state.play(0)
 
     self.assertEqual(state, copy.deepcopy(state))
     self.assertNotEqual(state, state1)
 
   def test_repr(self):
-    l, c = 3, 3
-    state = BoxesState((l, c))
+    state = BoxesState()
     for m in state.get_valid_moves(as_indices=True)[:10]:
       state.play_(m)
 
@@ -40,9 +38,9 @@ Result = None
     self.assertEqual(str(state), result)
 
   def test_moves_to_string(self):
-    g = BoxesState((3,3))
+    g = BoxesState()
     moves = g.get_valid_moves(True)
-    s = BoxesState.moves_to_string(moves[:10] + moves[-10:], (3,3))
+    s = moves_to_string(moves[:10] + moves[-10:])
 
     result = """------------------------------
 Player = 0

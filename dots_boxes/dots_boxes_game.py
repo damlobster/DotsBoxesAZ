@@ -5,20 +5,26 @@ import numpy as np
 import random
 
 class BoxesState(GameState):
-  __slots__ = 'BOARD_DIM', 'NB_ACTIONS', 'NB_BOXES', 'hash', 'board', 'player', 'next_player', 'boxes_to_close'  
+  __slots__ = 'hash', 'board', 'player', 'next_player', 'boxes_to_close'  
+  BOARD_DIM = (3,3)
+  NB_ACTIONS = 2 * (BOARD_DIM[0]+1) * (BOARD_DIM[1]+1)
+  NB_BOXES = BOARD_DIM[0] * BOARD_DIM[1]
 
-  def __init__(self, bsize=(3,3)):
-    l, c = bsize
-    self.BOARD_DIM = bsize
-    self.NB_ACTIONS = 2 * (l+1) * (c+1)
-    self.NB_BOXES = l * c
+  @staticmethod
+  def set_board_dim(dims):
+    BoxesState.BOARD_DIM = dims
+    BoxesState.NB_ACTIONS = 2 * (BoxesState.BOARD_DIM[0]+1) * (BoxesState.BOARD_DIM[1]+1)
+    BoxesState.NB_BOXES = BoxesState.BOARD_DIM[0] * BoxesState.BOARD_DIM[1]
+
+  def __init__(self):
+    l, c = BoxesState.BOARD_DIM
     self.hash = (0, 0)
-    self.board = np.zeros((2, l+1, c+1))
+    self.board = np.zeros((2, l+1, c+1), dtype=np.float32)
     self.board[1, l, :] = 1e-12
     self.board[0, :, c] = 1e-12
     self.player = 0
     self.next_player = 0
-    win_thres = self.NB_BOXES/2
+    win_thres = BoxesState.NB_BOXES/2
     self.boxes_to_close = [win_thres, win_thres]
 
   def get_actions_size(self):
@@ -36,11 +42,11 @@ class BoxesState(GameState):
       return None
 
     if self.boxes_to_close[0] == 0 and self.boxes_to_close[1] == 0:
-      return 0
+      return 0.0
     if self.boxes_to_close[self.player] < 0:
-      return 1
+      return 1.0
     elif self.boxes_to_close[1-self.player] < 0:
-      return -1
+      return -1.0
     else:
       return None
 
@@ -80,7 +86,7 @@ class BoxesState(GameState):
 
   def get_features(self):
     board = self.board
-    player = np.full_like(board[0], self.boxes_to_close[self.player])
+    player = np.full_like(board[0], self.boxes_to_close[self.player], dtype=np.float32)
     return np.concatenate((board, np.expand_dims(player, 0)), axis=0)
 
   def _check_box(self, l, c):
@@ -128,8 +134,9 @@ class BoxesState(GameState):
 
 def moves_to_string(moves, visits_counts=None):
   g = BoxesState()
-  boxes = [[" " for _ in range(g.BOARD_DIM[1])]
-            for _ in range(g.BOARD_DIM[0])]
+  boxes = [[" " for _ in range(BoxesState.BOARD_DIM[1])]
+            for _ in range(BoxesState.BOARD_DIM[0])]
+  vc = None
   if visits_counts is not None:
     sum = visits_counts.sum()
     vc = visits_counts if sum == 0 else visits_counts/sum

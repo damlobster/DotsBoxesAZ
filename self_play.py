@@ -2,50 +2,47 @@ import numpy as np
 import random
 import utils
 import mcts
-
-params = utils.DotDict({
-    "num_games": 1000,
-    "reuse_mcts_tree": True,
-    "noise": (1.0, 0.25),  # alpha, coeff
-    "mcts_num_read": 1000,
-    "temperature": {0:1.0, 5:1e-50},
-})
+import sys
 
 class SelfPlay(object):
 
   def __init__(self, nn, params):
     self.nn = nn
     self.played_games = []
-    self.params = params
+    self.params = params.self_play
 
-  def play_game(self, game_state):
-    params = self.params
-    alpha, coeff = params.noise
-    temperature = None
-    
-    moves_sequence = []
-    root_node = mcts.create_root_uct_node(game_state)
-    i = 0
-    while not root_node.is_terminal:
-      if i in params.temperature:
-        temperature = params.temperature[i]
-
-      visit_counts = mcts.UCT_search(root_node, params.mcts_num_read, self.nn)
+  def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
+      visit_counts = mcts.UCT_search(root_node, nb_mcts_searches, self.nn, self.params.mcts.mcts_cpuct)
       probs = (visit_counts/visit_counts.max()) ** (1/temperature)
-      
+
+      alpha, coeff = dirichelet
       probs = probs / probs.sum()
       valid_actions = root_node.game_state.get_valid_moves()
       valid_actions[valid_actions == 0] = 1e-60
       noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
-      probs = (1-coeff)*probs + coeff*noise
+      new_probs = (1-coeff)*probs + coeff*noise
 
-      move = np.argmax(np.random.multinomial(1, probs / probs.sum(), 1))
+      move = np.argmax(np.random.multinomial(1, new_probs / new_probs.sum(), 1))
+      return move
 
+  def play_game(self, game_state):
+    params = self.params
+    temperature = None
+    
+    moves_sequence = []
+    root_node = mcts.create_root_uct_node(game_state)
+    i = -1
+    while not root_node.is_terminal:
+      i += 1
+      if i in params.mcts.temperature:
+        temperature = params.mcts.temperature[i]
+      move = self.get_next_move(
+          root_node, params.mcts.mcts_num_read, temperature, params.noise)
       moves_sequence.append(root_node)
       next_node = None
       if params.reuse_mcts_tree:
         next_node = root_node.children[move]
-        root_node.children = None
+        del(root_node.children)
       else:
         next_node = mcts.create_root_uct_node(root_node.children[move].game_state)
       root_node = next_node
@@ -82,47 +79,3 @@ class SelfPlay(object):
         visit_counts.append(node.child_number_visits)
     vc = np.asarray(visit_counts, dtype=float)
     return moves, vc
-
-
-def test():
-  from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
-  sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
-  game_state = BoxesState((3,3))
-  sp.play_game(game_state)
-  moves, visit_counts = sp.get_games_moves()
-
-  for i in range(1, len(moves)+1):
-    print(moves_to_string(moves[:i], visit_counts[i-1]))
-
-def test_randomness():
-  from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
-  for i in range(20):
-    sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
-    game_state = BoxesState((3, 3))
-    sp.play_game(game_state)
-    moves, visit_counts = sp.get_games_moves()
-    print(moves)
-
-def worker(n_games, j):
-  print(str(j))
-  from dots_boxes.dots_boxes_game import BoxesState
-  game_state = BoxesState((3,3))
-  sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
-  sp.play_games(game_state, n_games, show_progress=True)
-  return sp.get_training_data()
-
-def generate_games():
-  import pickle
-  import multiprocessing as mp
-  with mp.Pool(mp.cpu_count()) as pool:
-    for i in range(5):
-      results = [pool.apply_async(worker, args=(1000,j)) for j in range(20)]
-      data = [p.get() for p in results]
-      with open("./data/selfplay{}.pkl".format(i), "wb") as f:
-        pickle.dump(list(data), f)
-
-
-if __name__ == '__main__':
-  #test()
-  test_randomness()
-  generate_games()

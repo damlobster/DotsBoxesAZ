@@ -15,6 +15,9 @@ class DummyNode(object):
 class UCTNode():
   __slots__ = ('game_state', 'move', 'is_expanded', 'parent', 'children', \
     'child_priors', 'child_total_value', 'child_number_visits', 'is_terminal')
+
+  CPUCT = 1.0
+
   def __init__(self, game_state: GameState, move: int, parent=None):
     self.game_state = game_state
     self.move = move
@@ -51,7 +54,7 @@ class UCTNode():
 
   def best_child(self):
     invalid_moves = 1 - self.game_state.get_valid_moves()
-    return np.argmax(-1e12*invalid_moves + self.child_Q() + self.child_U())
+    return np.argmax(-1e12*invalid_moves + self.child_Q() + UCTNode.CPUCT * self.child_U())
 
   def select_leaf(self):
     current = self
@@ -100,7 +103,8 @@ class UCTNode():
 def create_root_uct_node(game_state):
   return UCTNode(game_state, move=None, parent=DummyNode())
 
-def UCT_search(root_node: UCTNode, num_reads, nn):
+def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
+  UCTNode.CPUCT = cpuct
   root_node.parent = DummyNode()
   for _ in range(num_reads):
     leaf = root_node.select_leaf()
