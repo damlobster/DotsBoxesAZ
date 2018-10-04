@@ -8,7 +8,7 @@ import utils
 
 from game import GameState
 
-params = utils.DotDict({
+"""params = utils.DotDict({
     "nn": {
         "resnet": {
             "in_channels": 3,
@@ -29,7 +29,7 @@ params = utils.DotDict({
         "train_params": {
             "nb_epochs":100,    
             "train_split": 0.8,
-            "train_batch_size": 8,
+            "train_batch_size": 128,
             "val_batch_size": 1024,
             "lr": 0.2,
             "adam_betas": (0.9, 0.999),
@@ -37,13 +37,13 @@ params = utils.DotDict({
         }
     }
 })
-
+"""
 
 class NeuralNetWrapper():
   def __init__(self, model, params):
     self.cache = {}
     self.params = params
-    self.device = torch.device(params.pytorch_device if torch.cuda.is_available() else "cpu")
+    self.device = torch.device(params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
     self.model = model.to(self.device)
 
   def predict(self, game_state: GameState):
@@ -59,7 +59,7 @@ class NeuralNetWrapper():
     return (p, v)
 
   def train(self, dataset):
-    params = self.params.train_params
+    params = self.params.nn.train_params
     self.cache = {}
 
     optimizer = torch.optim.Adam(
@@ -113,7 +113,7 @@ class NeuralNetWrapper():
 class ResNet(nn.Module):
   def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks):
     super(ResNet, self).__init__()
-    self.conv0 = nn.Conv2d(in_channels, nb_channels, kernel_size=1)
+    self.conv0 = nn.Conv2d(in_channels, nb_channels, kernel_size=3, padding=1)
     self.resblocks = nn.Sequential(
         # A bit of fancy Python
         *(ResBlock(nb_channels, kernel_size) for _ in range(nb_blocks))
@@ -159,11 +159,11 @@ class ResBlock(nn.Module):
 
 
 class PolicyHead(nn.Module):
-  def __init__(self, in_channels, in_fc, nb_actions):
+  def __init__(self, in_channels, nb_actions):
     super(PolicyHead, self).__init__()
     self.conv0 = nn.Conv2d(in_channels, 4, kernel_size=1)
     self.bn0 = nn.BatchNorm2d(4)
-    self.fc = nn.Linear(in_fc, nb_actions)
+    self.fc = nn.Linear(2*nb_actions, nb_actions)
 
   def forward(self, x):
     x = self.conv0(x)
@@ -175,11 +175,11 @@ class PolicyHead(nn.Module):
 
 
 class ValueHead(nn.Module):
-  def __init__(self, in_channels, in_fc, n_hidden):
+  def __init__(self, in_channels, nb_actions, n_hidden):
     super(ValueHead, self).__init__()
-    self.conv0 = nn.Conv2d(in_channels, 2, kernel_size=1)
-    self.bn0 = nn.BatchNorm2d(2)
-    self.fc0 = nn.Linear(in_fc, n_hidden)
+    self.conv0 = nn.Conv2d(in_channels, 1, kernel_size=1)
+    self.bn0 = nn.BatchNorm2d(1)
+    self.fc0 = nn.Linear(nb_actions//2, n_hidden)
     self.fc1 = nn.Linear(n_hidden, 1)
 
   def forward(self, x):
@@ -195,10 +195,10 @@ class ValueHead(nn.Module):
 class ResNetZero(nn.Module):
   def __init__(self, params):
     super(ResNetZero, self).__init__()
-    self.params = params
-    self.resnet = ResNet(**params.resnet)
-    self.value_head = ValueHead(**params.value_head)
-    self.policy_head = PolicyHead(**params.policy_head)
+    self.params = params.nn
+    self.resnet = ResNet(**params.nn.resnet)
+    self.value_head = ValueHead(**params.nn.value_head)
+    self.policy_head = PolicyHead(**params.nn.policy_head)
 
   def forward(self, x):
     x = self.resnet(x)
@@ -208,7 +208,7 @@ class ResNetZero(nn.Module):
 
   def loss(self, v, z, p, pi):
     loss_v = (z - v).pow(2).mean()
-    loss_pi = -(pi.t() @ p.log()).mean()
+    loss_pi = -(pi.t() @ p.log()).sum()/z.size()[0]
     loss_reg = 0.0
     for p in self.parameters():
       loss_reg += self.params.train_params.lambda_l2 * p.pow(2).sum()

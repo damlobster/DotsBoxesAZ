@@ -10,43 +10,46 @@ from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 import utils
 
 params = utils.DotDict({
-    "self_play": {
-        "num_games": 1,
-        "reuse_mcts_tree": True,
-        "noise": (1.0, 0.25),  # alpha, coeff
-        "mcts":{
-            "mcts_num_read": 1000,
-            "mcts_cpuct": 1.0,
-            "temperature": {0: 1.0, 5: 1e-50},  # {0:1.0}
-        }
-    },
-    "nn": {
-        "train_params": {
-            "nb_epochs": 10,
-            "train_split": 0.8,
-            "train_batch_size": 8,
-            "val_batch_size": 1024,
-            "lr": 0.2,
-            "adam_betas": (0.9, 0.999),
-            "lambda_l2": 0.0002
-        },
-        "resnet": {
-            "in_channels": 3,
-            "nb_channels": 128,
-            "kernel_size": 3,
-            "nb_blocks": 5
-        },
-        "policy_head": {
-            "in_channels": 128,
-            "in_fc": 64,
-            "nb_actions": 32
-        },
-        "value_head": {
-            "in_channels": 128,
-            "in_fc": 32,
-            "n_hidden": 32
-        },
+  "game":{
+    "board_size":(3,3),
+  },
+  "self_play": {
+    "num_games": 1,
+    "reuse_mcts_tree": True,
+    "noise": (1.0, 0.25),  # alpha, coeff
+    "mcts":{
+      "mcts_num_read": 1000,
+      "mcts_cpuct": 1.0,
+      "temperature": {0: 1.0, 5: 1e-50},  # {0:1.0}
     }
+  },
+  "nn": {
+    "pytorch_device": "cuda:1",
+    "train_params": {
+      "nb_epochs": 100,
+      "train_split": 0.8,
+      "train_batch_size": 256,
+      "val_batch_size": 1024,
+      "lr": 0.2,
+      "adam_betas": (0.9, 0.999),
+      "lambda_l2": 0.0
+    },
+    "resnet": {
+      "in_channels": 3,
+      "nb_channels": 128,
+      "kernel_size": 3,
+      "nb_blocks": 10
+    },
+    "policy_head": {
+      "in_channels": 128,
+      "nb_actions": 2*4*4,
+    },
+    "value_head": {
+      "in_channels": 128,
+      "nb_actions": 2*4*4,
+      "n_hidden": 64
+    },
+  }
 })
 
 def test():
@@ -78,23 +81,23 @@ def worker(n_games, j):
 def generate_games():
   with mp.Pool(mp.cpu_count()) as pool:
     for i in range(1):
-      results = [pool.apply_async(worker, args=(10, j)) for j in range(10)]
+      results = [pool.apply_async(worker, args=(10, j)) for j in range(100)]
       data = [p.get() for p in results]
       with open("./data/selfplay{}.pkl".format(i), "wb") as f:
         pickle.dump(list(data), f)
 
 def train_nn():
-  ds = utils.PickleDataset("./data/", size_limit=int(500))
-  model = ResNetZero(params.nn)
+  ds = utils.PickleDataset("./data/", size_limit=int(1e3))
+  model = ResNetZero(params)
   print(model)
-  wrapper = NeuralNetWrapper(model, params.nn)
+  wrapper = NeuralNetWrapper(model, params)
   wrapper.train(ds)
   wrapper.save_model_parameters("./temp/tests_nn_model.pkl")
 
 
 def predict_nn():
   ds = utils.PickleDataset("./data/", size_limit=int(10))
-  model = ResNetZero(params.nn)
+  model = ResNetZero(params)
   #model.load_parameters("./temp/tests_nn_model.pkl")
   
   for board, pi, z in ds:
