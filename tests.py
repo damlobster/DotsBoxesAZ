@@ -5,13 +5,14 @@ import multiprocessing as mp
 import torch
 
 from self_play import SelfPlay
+from dots_boxes.dots_boxes_game import BoxesState
 from nn import NeuralNetWrapper, ResNetZero
 from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 import utils
 
 params = utils.DotDict({
   "game":{
-    "board_size":(3,3),
+    "board_size":BoxesState.BOARD_DIM,
   },
   "self_play": {
     "num_games": 1,
@@ -28,25 +29,25 @@ params = utils.DotDict({
     "train_params": {
       "nb_epochs": 100,
       "train_split": 0.8,
-      "train_batch_size": 256,
+      "train_batch_size": 32,
       "val_batch_size": 1024,
       "lr": 0.2,
       "adam_betas": (0.9, 0.999),
-      "lambda_l2": 0.0
+      "lambda_l2": 1e-4
     },
     "resnet": {
       "in_channels": 3,
       "nb_channels": 128,
       "kernel_size": 3,
-      "nb_blocks": 10
+      "nb_blocks": 20
     },
     "policy_head": {
       "in_channels": 128,
-      "nb_actions": 2*4*4,
+      "nb_actions": BoxesState.NB_ACTIONS,
     },
     "value_head": {
       "in_channels": 128,
-      "nb_actions": 2*4*4,
+      "nb_actions": BoxesState.NB_ACTIONS,
       "n_hidden": 64
     },
   }
@@ -61,7 +62,6 @@ def test():
   for i in range(1, len(moves)+1):
     print(moves_to_string(moves[:i], visit_counts[i-1]))
 
-
 def check_randomness():
   for i in range(20):
     sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
@@ -69,7 +69,6 @@ def check_randomness():
     sp.play_game(game_state)
     moves, _ = sp.get_games_moves()
     print(moves)
-
 
 def worker(n_games, j):
   print(str(j))
@@ -81,7 +80,7 @@ def worker(n_games, j):
 def generate_games():
   with mp.Pool(mp.cpu_count()) as pool:
     for i in range(1):
-      results = [pool.apply_async(worker, args=(10, j)) for j in range(100)]
+      results = [pool.apply_async(worker, args=(10, j)) for j in range(12)]
       data = [p.get() for p in results]
       with open("./data/selfplay{}.pkl".format(i), "wb") as f:
         pickle.dump(list(data), f)
@@ -94,17 +93,18 @@ def train_nn():
   wrapper.train(ds)
   wrapper.save_model_parameters("./temp/tests_nn_model.pkl")
 
-
 def predict_nn():
   ds = utils.PickleDataset("./data/", size_limit=int(10))
   model = ResNetZero(params)
-  #model.load_parameters("./temp/tests_nn_model.pkl")
+  model.load_parameters("./temp/tests_nn_model.pkl")
   
   for board, pi, z in ds:
     p, v = model(torch.tensor([board]))
     print("*"*70)
+    print("*"*70)
     print("pi=", pi)
-    print("p =",p[0].tolist())
+    print("p =",p[0])
+    print("crossentropy=", -pi.T @ np.log(p[0].tolist()))
     print("*"*50)
     print("z=", z[0])
     print("v=", v.item())
