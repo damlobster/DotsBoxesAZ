@@ -3,8 +3,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.utils.data as data
-from tqdm import tqdm, trange
-from functools import reduce
 
 import utils
 
