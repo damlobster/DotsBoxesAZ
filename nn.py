@@ -104,20 +104,12 @@ class ResNetZero(nn.Module):
         v = self.value_head(x)
         return (p, v)
 
-    def loss(self, v, z, p, pi):
-        loss_v = (z - v).pow(2).sum()/z.size()[0]
-        loss_pi = -(pi.t() @ p.log()).sum()/z.size()[0]
-        loss_reg = 0.0
-        for p in self.parameters():
-            loss_reg += self.params.train_params.lambda_l2 * p.pow(2).sum()
-
-        loss = loss_v + loss_pi + loss_reg
-        return loss
-
     def save_parameters(self, filename):
+        print("Model saved to:", filename)
         torch.save(self.state_dict(), filename)
 
     def load_parameters(self, filename):
+        print("Model loaded from:", filename)
         self.load_state_dict(torch.load(filename))
 
 
@@ -137,7 +129,7 @@ class NeuralNetWrapper():
         x = torch.tensor(game_state.get_features(),
                          dtype=torch.float32, device=self.device)
         p, v = self.model.forward(x)
-        p, v = p.numpy(), v.numpy()
+        p, v = torch.exp(p).numpy(), v.numpy()
         self.cache[game_state] = (p, v)
         return (p, v)
 
@@ -145,8 +137,7 @@ class NeuralNetWrapper():
         params = self.params.nn.train_params
         self.cache = {}
 
-        optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=params.lr, betas=params.adam_betas)
+        optimizer = None
 
         split_idx = int(len(dataset)*params.train_split)
         train_data, validation_data = data.random_split(
@@ -157,36 +148,60 @@ class NeuralNetWrapper():
             validation_data, params.val_batch_size)
 
         for epoch in range(params.nb_epochs):
+            if epoch in params.lr:
+                print("Update lr: ", params.lr[epoch])
+                optimizer = torch.optim.Adam(
+                    self.model.parameters(), lr=params.lr[epoch], betas=params.adam_betas)
             self.model.train(True)
             train_loss = 0.0
             for boards, pi, z in train_data:
+                # Transfer to GPU
+                boards = boards.to(self.device)
+                pi = pi.requires_grad_(True).to(self.device)
+                z = z.requires_grad_(True).to(self.device)
+
+                p, v = self.model(boards)
+                loss_pi = self.loss_pi(p, pi)
+                loss_v = self.loss_v(v, z)
+                loss_reg = self.loss_reg()
+                loss = (loss_v + loss_pi + loss_reg)/len(train_data)
+                train_loss += loss.item()
+                
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+            self.model.train(False)
+            val_loss = 0.0
+            for boards, pi, z in validation_data:
                 # Transfer to GPU
                 boards = boards.to(self.device)
                 pi = pi.to(self.device)
                 z = z.to(self.device)
 
                 p, v = self.model(boards)
-                loss = self.model.loss(v, z, p, pi)/len(train_data)
-                train_loss += loss.item()
+                loss_pi = self.loss_pi(p, pi)
+                loss_v = self.loss_v(v, z)
+                loss_reg = self.loss_reg()
+                loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
+                val_loss += loss.item()
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+            print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
+                epoch+1, train_loss, val_loss,))
 
-        self.model.train(False)
-        val_loss = 0.0
-        for boards, pi, z in validation_data:
-            # Transfer to GPU
-            boards = boards.to(self.device)
-            pi = pi.to(self.device)
-            z = z.to(self.device)
+    def loss_pi(self, p, pi):
+        loss_pi = -(pi * p).sum()/pi.size()[0]
+        return loss_pi
 
-            p, v = self.model(boards)
-            loss = self.model.loss(v, z, p, pi)/len(validation_data)
-            val_loss = loss.item()
+    def loss_v(self, v, z):
+        loss_v = (z - v).pow(2).sum()/z.size()[0]
+        return loss_v
 
-        print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
-              epoch+1, train_loss, val_loss,))
+    def loss_reg(self):
+        loss_reg = torch.tensor(0.0, dtype=torch.float, device=self.device)
+        for p in self.model.parameters():
+            loss_reg += self.params.nn.train_params.lambda_l2 * p.pow(2).sum()
+        return loss_reg
 
     def save_model_parameters(self, filename):
         self.model.save_parameters(filename)
