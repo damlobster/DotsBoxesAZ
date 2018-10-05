@@ -8,6 +8,7 @@ from self_play import SelfPlay
 from dots_boxes.dots_boxes_game import BoxesState
 from nn import NeuralNetWrapper, ResNetZero
 from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
+from dots_boxes.dots_boxes_nn import SimpleNN
 import utils
 
 params = utils.DotDict({
@@ -27,11 +28,11 @@ params = utils.DotDict({
     "nn": {
         "pytorch_device": "cuda:1",
         "train_params": {
-            "nb_epochs": 100,
+            "nb_epochs": 200,
             "train_split": 0.8,
-            "train_batch_size": 32,
+            "train_batch_size": 8,
             "val_batch_size": 1024,
-            "lr": 0.2,
+            "lr": {0:0.2, 50:0.1, 100:0.05, 150:0.01},
             "adam_betas": (0.9, 0.999),
             "lambda_l2": 1e-4
         },
@@ -93,8 +94,8 @@ def generate_games():
 
 
 def train_nn():
-    ds = utils.PickleDataset("./data/", size_limit=int(1e3))
-    model = ResNetZero(params)
+    ds = utils.PickleDataset("./data/", size_limit=int(1e2))
+    model = ResNetZero(params)  #SimpleNN()
     print(model)
     wrapper = NeuralNetWrapper(model, params)
     wrapper.train(ds)
@@ -103,16 +104,18 @@ def train_nn():
 
 def predict_nn():
     ds = utils.PickleDataset("./data/", size_limit=int(10))
-    model = ResNetZero(params)
+    model = ResNetZero(params) #SimpleNN()
     model.load_parameters("./temp/tests_nn_model.pkl")
 
-    for board, pi, z in ds:
-        p, v = model(torch.tensor([board]))
+    pv = list(zip(*model(torch.tensor([s[0] for s in ds]))))
+    for i, (_, pi, z) in enumerate(ds):
+        p, v = pv[i]
+        p = torch.exp(p)
         print("*"*70)
         print("*"*70)
-        print("pi=", pi)
-        print("p =", p[0])
-        print("crossentropy=", -pi.T @ np.log(p[0].tolist()))
+        print("pi= [", ", ".join(map(lambda v: "{:.3f}".format(v), pi)), "]")
+        print("p = [", ", ".join(map(lambda v: "{:.3f}".format(v), p)), "]")
+        #print("crossentropy=", -pi.T @ np.log(p.tolist()))
         print("*"*50)
         print("z=", z[0])
         print("v=", v.item())
