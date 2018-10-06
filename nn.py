@@ -59,16 +59,16 @@ def _create_conv_layer(in_channels, out_channels, kernel_size):
 class PolicyHead(nn.Module):
     def __init__(self, in_channels, nb_actions):
         super(PolicyHead, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels, 4, kernel_size=1)
-        self.bn0 = nn.BatchNorm2d(4)
-        self.fc = nn.Linear(2*nb_actions, nb_actions)
+        self.conv0 = nn.Conv2d(in_channels, 2, kernel_size=1)
+        self.bn0 = nn.BatchNorm2d(2)
+        self.fc = nn.Linear(nb_actions, nb_actions)
 
     def forward(self, x):
         x = self.conv0(x)
-        x = self.bn0(F.relu(x))
+        x = F.relu(self.bn0(x))
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-        p = F.softmax(x, dim=1)
+        p = F.log_softmax(x, dim=1)
         return p
 
 
@@ -126,12 +126,15 @@ class NeuralNetWrapper():
         if game_state in self.cache:
             return self.cache[game_state]
 
-        x = torch.tensor(game_state.get_features(),
+        x = torch.tensor([game_state.get_features()],
                          dtype=torch.float32, device=self.device)
         p, v = self.model.forward(x)
-        p, v = torch.exp(p).numpy(), v.numpy()
+        p, v = torch.exp(p).cpu().detach().numpy(), v.cpu().detach().numpy()
         self.cache[game_state] = (p, v)
         return (p, v)
+
+    def __call__(self, game_state):
+        return self.predict(game_state)
 
     def train(self, dataset):
         params = self.params.nn.train_params
@@ -182,7 +185,7 @@ class NeuralNetWrapper():
                 p, v = self.model(boards)
                 loss_pi = self.loss_pi(p, pi)
                 loss_v = self.loss_v(v, z)
-                loss_reg = self.loss_reg()
+                loss_reg = 0.0 #self.loss_reg()
                 loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
                 val_loss += loss.item()
 
