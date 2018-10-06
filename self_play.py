@@ -12,8 +12,8 @@ class SelfPlay(object):
         self.played_games = []
         self.params = params.self_play
 
-    def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
-        visit_counts = mcts.UCT_search(
+    async def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
+        visit_counts = await mcts.UCT_search_async(
             root_node, nb_mcts_searches, self.nn, self.params.mcts.mcts_cpuct)
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
 
@@ -28,7 +28,7 @@ class SelfPlay(object):
             1, new_probs / new_probs.sum(), 1))
         return move
 
-    def play_game(self, game_state):
+    async def play_game(self, game_state):
         params = self.params
         temperature = None
 
@@ -39,7 +39,7 @@ class SelfPlay(object):
             i += 1
             if i in params.mcts.temperature:
                 temperature = params.mcts.temperature[i]
-            move = self.get_next_move(
+            move = await self.get_next_move(
                 root_node, params.mcts.mcts_num_read, temperature, params.noise)
             moves_sequence.append(root_node)
             next_node = None
@@ -55,11 +55,11 @@ class SelfPlay(object):
         self.played_games.append(
             (moves_sequence, root_node.game_state.get_result()))
 
-    def play_games(self, game_state, n_iters, show_progress=False):
+    async def play_games(self, game_state, n_iters, show_progress=False):
         for _ in range(n_iters):
             if show_progress:
                 print(".", end="", flush=True)
-            self.play_game(game_state)
+            await self.play_game(game_state)
 
     def get_training_data(self):
         features = []

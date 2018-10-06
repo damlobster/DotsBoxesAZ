@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import numpy as np
 import pickle
@@ -10,6 +11,7 @@ from nn import NeuralNetWrapper, ResNetZero
 from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 from dots_boxes.dots_boxes_nn import SimpleNN
 import utils
+from utils import AsyncBatchedProxy
 
 params = utils.DotDict({
     "game": {
@@ -83,7 +85,7 @@ def check_randomness():
         print(moves)
 
 
-def selfplay(n_games, nn):
+async def selfplay(n_games, nn):
     game_state = BoxesState()
     sp = SelfPlay(nn, params)
     sp.play_games(game_state, n_games, show_progress=True)
@@ -150,6 +152,33 @@ def selfplay_nn(generation):
 
     results = selfplay(1000, nn)
     with open("./data/selfplay{}.pkl".format(generation), "wb") as f:
+        pickle.dump(list(results), f)
+
+
+def async_selfplay(generation, n_games=1000):
+    print("Generation is the next one for which we generate samples")
+    assert generation is not None
+
+    def build_X(games_state_batch):
+        return np.concatenate(tuple(gs.get_features() for gs in games_state_batch))
+
+    model = ResNetZero(params) if resnet else SimpleNN()
+    model.load_parameters(
+        "./temp/tests_nn_model_{}.pkl".format(int(generation)-1))
+    nn = NeuralNetWrapper(model, params)
+
+    batched_nn = AsyncBatchedProxy(nn, build_X, 8)
+
+    game_state = BoxesState()
+    sp = SelfPlay(batched_nn, params)
+    
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(asyncio.gather(batched_nn.batch_runner(),
+        sp.play_games(game_state, n_games, show_progress=True)))
+    loop.close()
+
+    results = sp.get_training_data()
+    with open("./data/async_selfplay{}.pkl".format(generation), "wb") as f:
         pickle.dump(list(results), f)
 
 

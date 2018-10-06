@@ -1,13 +1,14 @@
+import asyncio
 import collections
-import numpy as np
+from functools import partial
 import math
-import random
+import numpy as np
 
 from game import GameState
 from utils import DictWithDefault
 
 
-class DummyNode(object):
+class DummyNode():
     def __init__(self):
         self.parent = None
         self.child_total_value = collections.defaultdict(float)
@@ -72,13 +73,11 @@ class UCTNode():
         current.total_value -= 1
         return current
 
-    """
-    def maybe_add_child(self, move):
-        if move not in self.children:
-            self.children[move] = UCTNode(
-                self.game_state.play(move), move, parent=self)
-        return self.children[move]
-    """
+    # def maybe_add_child(self, move):
+    #     if move not in self.children:
+    #         self.children[move] = UCTNode(
+    #             self.game_state.play(move), move, parent=self)
+    #     return self.children[move]
     
     def expand(self, child_priors):
         if not self.is_terminal:
@@ -119,7 +118,7 @@ def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
     for _ in range(num_reads):
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
-            child_priors, value_estimate = nn(leaf.game_state)
+            child_priors, value_estimate = nn(leaf.game_state) ###### !!!!!!!!!
         else:
             child_priors, value_estimate = np.zeros(
                 leaf.game_state.get_actions_size()), leaf.game_state.get_result()
@@ -129,3 +128,21 @@ def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
         leaf.backup(value_estimate)
 
     return root_node.child_number_visits
+
+
+async def UCT_search_async(root_node: UCTNode, num_reads, nn, cpuct=1.0):
+    def async_callback(leaf, pv):
+        priors, value_estimate = pv
+        leaf.expand(priors * leaf.game_state.get_valid_moves(as_indices=False))
+        leaf.backup(value_estimate)
+
+    UCTNode.CPUCT = cpuct
+    root_node.parent = DummyNode()
+    for _ in range(num_reads):
+        leaf = root_node.select_leaf()
+        if not leaf.is_terminal:
+            await nn(leaf, partial(async_callback, leaf))
+        else:
+            async_callback(np.zeros(leaf.game_state.get_actions_size()),
+                           leaf.game_state.get_result())
+    return lambda: root_node.child_number_visits

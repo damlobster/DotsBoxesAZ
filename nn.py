@@ -115,26 +115,21 @@ class ResNetZero(nn.Module):
 
 class NeuralNetWrapper():
     def __init__(self, model, params):
-        self.cache = {}
         self.params = params
         self.device = torch.device(
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
 
-    def predict(self, game_state: GameState):
+    def predict(self, X):
         self.model.train(False)
-        if game_state in self.cache:
-            return self.cache[game_state]
 
-        x = torch.tensor([game_state.get_features()],
-                         dtype=torch.float32, device=self.device)
+        x = torch.tensor(X, dtype=torch.float32, device=self.device)
         p, v = self.model.forward(x)
         p, v = torch.exp(p).cpu().detach().numpy(), v.cpu().detach().numpy()
-        self.cache[game_state] = (p, v)
         return (p, v)
 
-    def __call__(self, game_state):
-        return self.predict(game_state)
+    def __call__(self, X):
+        return self.predict(X)
 
     def train(self, dataset):
         params = self.params.nn.train_params

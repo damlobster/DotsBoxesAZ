@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import numpy as np
 import os
@@ -59,3 +60,31 @@ class PickleDataset(data.Dataset):
 
         # Load data and get label
         return board, visits, np.asarray([value], dtype=np.float32)
+
+
+class AsyncBatchedProxy():
+    def __init__(self, func, batch_builder, batch_size):
+        super(AsyncBatchedProxy, self).__init__()
+        self.func = func
+        self.batch_size = batch_size
+        self.batch_builder = batch_builder
+        self.queue = asyncio.Queue()
+        self.future_res = {}
+
+    async def __call__(self, argument, callback):
+        await self.queue.put((argument, callback))
+
+    async def batch_runner(self):
+        batch, cbs = [], []
+        arg = True
+        while arg is not None:
+            arg, cb = await self.queue.get()
+            if arg is not None:
+                batch.append(arg)
+                cbs.append(cb)
+            if len(batch) >= self.batch_size or (not arg and batch):
+                results = await self.func(self.batch_builder(batch))
+                for cb, r in zip(cbs, results):
+                    await cb(r)
+
+                batch, cbs = [], []

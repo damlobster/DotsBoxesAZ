@@ -90,7 +90,7 @@ class BoxesState(GameState):
         board = self.board
         player = np.full_like(
             board[0], self.boxes_to_close[self.player], dtype=np.float32)
-        return np.concatenate((board, np.expand_dims(player, 0)), axis=0)
+        return np.concatenate((board, np.expand_dims(player, 0)), axis=0)[np.newaxis, :]
 
     def _check_box(self, l, c):
         edges_idx = ((0, 0, 1, 1), (l, l+1, l, l), (c, c, c, c+1))
