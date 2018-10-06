@@ -6,7 +6,6 @@ import multiprocessing as mp
 import torch
 
 from self_play import SelfPlay
-from dots_boxes.dots_boxes_game import BoxesState
 from nn import NeuralNetWrapper, ResNetZero
 from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 from dots_boxes.dots_boxes_nn import SimpleNN
@@ -160,14 +159,14 @@ def async_selfplay(generation, n_games=1000):
     assert generation is not None
 
     def build_X(games_state_batch):
-        return np.concatenate(tuple(gs.get_features() for gs in games_state_batch))
+        return np.concatenate(tuple(gs.game_state.get_features() for gs in games_state_batch))
 
     model = ResNetZero(params) if resnet else SimpleNN()
     model.load_parameters(
         "./temp/tests_nn_model_{}.pkl".format(int(generation)-1))
     nn = NeuralNetWrapper(model, params)
 
-    batched_nn = AsyncBatchedProxy(nn, build_X, 8)
+    batched_nn = AsyncBatchedProxy(nn, build_X, 32)
 
     game_state = BoxesState()
     sp = SelfPlay(batched_nn, params)

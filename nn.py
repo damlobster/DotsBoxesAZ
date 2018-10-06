@@ -128,7 +128,7 @@ class NeuralNetWrapper():
         p, v = torch.exp(p).cpu().detach().numpy(), v.cpu().detach().numpy()
         return (p, v)
 
-    def __call__(self, X):
+    async def __call__(self, X):
         return self.predict(X)
 
     def train(self, dataset):

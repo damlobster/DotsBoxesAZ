@@ -68,7 +68,7 @@ class AsyncBatchedProxy():
         self.func = func
         self.batch_size = batch_size
         self.batch_builder = batch_builder
-        self.queue = asyncio.Queue()
+        self.queue = asyncio.Queue(maxsize=batch_size + batch_size//3)
         self.future_res = {}
 
     async def __call__(self, argument, callback):
@@ -84,7 +84,7 @@ class AsyncBatchedProxy():
                 cbs.append(cb)
             if len(batch) >= self.batch_size or (not arg and batch):
                 results = await self.func(self.batch_builder(batch))
-                for cb, r in zip(cbs, results):
-                    await cb(r)
+                for cb, p, v in zip(cbs, *results):
+                    await cb((p, v))
 
                 batch, cbs = [], []
