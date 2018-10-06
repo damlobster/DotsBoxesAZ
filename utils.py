@@ -28,18 +28,26 @@ class DotDict(dict):
             value = DotDict(value)
         self.__setitem__(key, value)
 
+class DictWithDefault(dict):
+    def __init__(self, lmbda):
+        super(DictWithDefault, self).__init__()
+        self.lmbda = lmbda
+
+    def __missing__(self, key):
+        res = self[key] = self.lmbda(key)
+        return res
 
 class PickleDataset(data.Dataset):
-    def __init__(self, data_directory, size_limit=int(1e7)):
+    def __init__(self, data_directory, file=None, from_idx=0, to_idx=int(1e12)):
         self.data = []
         files = sorted(os.listdir(data_directory), reverse=True)
         for fn in files:
-            with open(data_directory+fn, "rb") as f:
-                self.data.extend([sample for chunk in pickle.load(f)
-                                  for sample in chunk])
-            if len(self.data) > size_limit:
-                self.data = self.data[:size_limit]
-                break
+            if file is not None and file == fn:
+                with open(data_directory+fn, "rb") as f:
+                    self.data.extend([sample for sample in pickle.load(f)])
+                if len(self.data) > to_idx:
+                    break
+        self.data = self.data[from_idx:to_idx]
 
     def __len__(self):
         return len(self.data)
