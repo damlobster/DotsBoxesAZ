@@ -85,6 +85,6 @@ class AsyncBatchedProxy():
             if len(batch) >= self.batch_size or (not arg and batch):
                 results = await self.func(self.batch_builder(batch))
                 for cb, p, v in zip(cbs, *results):
-                    await cb((p, v))
+                    cb((p, v))
 
                 batch, cbs = [], []

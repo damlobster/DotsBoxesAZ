@@ -131,7 +131,7 @@ def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
 
 
 async def UCT_search_async(root_node: UCTNode, num_reads, nn, cpuct=1.0):
-    async def async_callback(leaf, pv):
+    def async_callback(leaf, pv):
         priors, value_estimate = pv
         leaf.expand(priors * leaf.game_state.get_valid_moves(as_indices=False))
         leaf.backup(value_estimate)
@@ -143,6 +143,6 @@ async def UCT_search_async(root_node: UCTNode, num_reads, nn, cpuct=1.0):
         if not leaf.is_terminal:
             await nn(leaf, partial(async_callback, leaf))
         else:
-            await async_callback(leaf, (np.zeros(leaf.game_state.get_actions_size()),
+            async_callback(leaf, (np.zeros(leaf.game_state.get_actions_size()),
                            leaf.game_state.get_result()))
     return root_node.child_number_visits
