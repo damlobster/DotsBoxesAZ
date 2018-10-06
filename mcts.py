@@ -4,6 +4,7 @@ import math
 import random
 
 from game import GameState
+from utils import DictWithDefault
 
 
 class DummyNode(object):
@@ -25,7 +26,7 @@ class UCTNode():
         self.is_expanded = False
         self.is_terminal = game_state.get_result() is not None
         self.parent = parent
-        self.children = {}
+        self.children = DictWithDefault(lambda move: UCTNode(self.game_state.play(move), move, parent=self))
         self.child_priors = np.zeros(
             [game_state.get_actions_size()], dtype=np.float32)
         self.child_total_value = np.zeros(
@@ -66,17 +67,19 @@ class UCTNode():
             current.number_visits += 1
             current.total_value -= 1
             best_move = current.best_child()
-            current = current.maybe_add_child(best_move)
+            current = current.children[best_move]
         current.number_visits += 1
         current.total_value -= 1
         return current
 
+    """
     def maybe_add_child(self, move):
         if move not in self.children:
             self.children[move] = UCTNode(
                 self.game_state.play(move), move, parent=self)
         return self.children[move]
-
+    """
+    
     def expand(self, child_priors):
         if not self.is_terminal:
             self.is_expanded = True
