@@ -28,35 +28,43 @@ params = utils.DotDict({
     "nn": {
         "pytorch_device": "cuda:1",
         "train_params": {
-            "nb_epochs": 200,
+            "nb_epochs": 50,
             "train_split": 0.8,
-            "train_batch_size": 8,
+            "train_batch_size": 256,
             "val_batch_size": 1024,
-            "lr": {0:0.2, 50:0.1, 100:0.05, 150:0.01},
+            "lr": {0:0.15, 10:0.1, 20:0.01},
             "adam_betas": (0.9, 0.999),
-            "lambda_l2": 1e-4
+            "lambda_l2": 0.0 #1e-4
         },
         "resnet": {
             "in_channels": 3,
-            "nb_channels": 128,
+            "nb_channels": 256,
             "kernel_size": 3,
             "nb_blocks": 20
         },
         "policy_head": {
-            "in_channels": 128,
+            "in_channels": 256,
             "nb_actions": BoxesState.NB_ACTIONS,
         },
         "value_head": {
-            "in_channels": 128,
+            "in_channels": 256,
             "nb_actions": BoxesState.NB_ACTIONS,
-            "n_hidden": 64
+            "n_hidden": 128
         },
     }
 })
 
 
-def test():
-    sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
+def play_game(generation):
+    if generation is None:
+        raise ValueError("You should specify a generation!")
+    params.self_play.mcts.temperature = {0:1.0, 3:1e-50}
+    params.self_play.noise = (1.0, 0.0)
+
+    model = ResNetZero(params) if resnet else SimpleNN()
+    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
+    nn = NeuralNetWrapper(model, params)
+    sp = SelfPlay(nn, params)
     game_state = BoxesState()
     sp.play_game(game_state)
     moves, visit_counts = sp.get_games_moves()
@@ -75,37 +83,49 @@ def check_randomness():
         print(moves)
 
 
-def worker(n_games, j):
-    print(str(j))
+def selfplay(n_games, nn):
     game_state = BoxesState()
-    sp = SelfPlay(lambda state: (np.ones(state.get_actions_size()), 0), params)
+    sp = SelfPlay(nn, params)
     sp.play_games(game_state, n_games, show_progress=True)
     return sp.get_training_data()
 
 
 def generate_games():
+    raise ValueError("TODO: flatten chunks")
+    def nn(state): return (np.ones(state.get_actions_size()), 0)
+
     with mp.Pool(mp.cpu_count()) as pool:
         for i in range(1):
-            results = [pool.apply_async(worker, args=(10, j))
-                       for j in range(12)]
+            results = [pool.apply_async(selfplay, args=(10, nn))
+                       for _ in range(120)]
             data = [p.get() for p in results]
             with open("./data/selfplay{}.pkl".format(i), "wb") as f:
                 pickle.dump(list(data), f)
 
 
-def train_nn():
-    ds = utils.PickleDataset("./data/", size_limit=int(1e2))
-    model = ResNetZero(params)  #SimpleNN()
-    print(model)
+
+
+resnet = False
+
+def train_nn(generation, to_idx=int(1e12)):
+    print("Generation is the next one for which we train the model", flush=True)
+    assert generation is not None
+    generation = int(generation)
+    ds = utils.PickleDataset("./data/", file="selfplay{}.pkl".format(generation-1), to_idx=to_idx)
+    model = ResNetZero(params)  if resnet else SimpleNN()
+    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation-1))
     wrapper = NeuralNetWrapper(model, params)
     wrapper.train(ds)
-    wrapper.save_model_parameters("./temp/tests_nn_model.pkl")
+    wrapper.save_model_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
 
 
-def predict_nn():
-    ds = utils.PickleDataset("./data/", size_limit=int(10))
-    model = ResNetZero(params) #SimpleNN()
-    model.load_parameters("./temp/tests_nn_model.pkl")
+def predict_nn(generation):
+    assert generation is not None
+    valid_actions = BoxesState().get_valid_moves(as_indices=True)
+
+    ds = utils.PickleDataset("./data/", from_idx=10000, to_idx=10100)
+    model = ResNetZero(params) if resnet else SimpleNN()
+    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
 
     pv = list(zip(*model(torch.tensor([s[0] for s in ds]))))
     for i, (_, pi, z) in enumerate(ds):
@@ -113,12 +133,24 @@ def predict_nn():
         p = torch.exp(p)
         print("*"*70)
         print("*"*70)
-        print("pi= [", ", ".join(map(lambda v: "{:.3f}".format(v), pi)), "]")
-        print("p = [", ", ".join(map(lambda v: "{:.3f}".format(v), p)), "]")
+        print("pi= [", ", ".join(map(lambda v: "{:.3f}".format(v), pi[valid_actions])), "]")
+        print("p = [", ", ".join(map(lambda v: "{:.3f}".format(v), p[valid_actions])), "]")
         #print("crossentropy=", -pi.T @ np.log(p.tolist()))
         print("*"*50)
         print("z=", z[0])
         print("v=", v.item())
+
+
+def selfplay_nn(generation):
+    print("Generation is the next one for which we generate samples")
+    assert generation is not None
+    model = ResNetZero(params) if resnet else SimpleNN()
+    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(int(generation)-1))
+    nn = NeuralNetWrapper(model, params)
+
+    results = selfplay(1000, nn)
+    with open("./data/selfplay{}.pkl".format(generation), "wb") as f:
+        pickle.dump(list(results), f)
 
 
 if __name__ == '__main__':
@@ -126,4 +158,7 @@ if __name__ == '__main__':
         print("Function name missing")
     else:
         function = sys.argv[1]
-        globals()[function]()
+        args = []
+        if len(sys.argv)>2:
+            args = sys.argv[2:]
+        globals()[function](*args)
