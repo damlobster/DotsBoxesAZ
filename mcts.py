@@ -143,6 +143,6 @@ async def UCT_search_async(root_node: UCTNode, num_reads, nn, cpuct=1.0):
         if not leaf.is_terminal:
             await nn(leaf, partial(async_callback, leaf))
         else:
-            async_callback(np.zeros(leaf.game_state.get_actions_size()),
-                           leaf.game_state.get_result())
-    return lambda: root_node.child_number_visits
+            async_callback(leaf, (np.zeros(leaf.game_state.get_actions_size()),
+                           leaf.game_state.get_result()))
+    return root_node.child_number_visits

@@ -1,3 +1,4 @@
+import asyncio
 import numpy as np
 import random
 import utils
@@ -54,6 +55,9 @@ class SelfPlay(object):
         moves_sequence.append(root_node)
         self.played_games.append(
             (moves_sequence, root_node.game_state.get_result()))
+
+        # terminate the batcher coroutine
+        await self.nn(None, None)
 
     async def play_games(self, game_state, n_iters, show_progress=False):
         for _ in range(n_iters):
