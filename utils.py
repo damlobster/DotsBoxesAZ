@@ -63,12 +63,12 @@ class PickleDataset(data.Dataset):
 
 
 class AsyncBatchedProxy():
-    def __init__(self, func, batch_builder, batch_size):
+    def __init__(self, func, batch_builder, batch_size, max_queue_size=None):
         super(AsyncBatchedProxy, self).__init__()
         self.func = func
         self.batch_size = batch_size
         self.batch_builder = batch_builder
-        self.queue = asyncio.Queue(maxsize=batch_size + batch_size//3)
+        self.queue = asyncio.Queue(maxsize = max_queue_size if max_queue_size else batch_size + 2)
         self.future_res = {}
 
     async def __call__(self, argument, callback):
