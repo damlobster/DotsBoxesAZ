@@ -110,7 +110,7 @@ class ResNetZero(nn.Module):
 
     def load_parameters(self, filename):
         print("Model loaded from:", filename)
-        self.load_state_dict(torch.load(filename))
+        self.load_state_dict(torch.load(filename, map_location=lambda storage, loc: storage))
 
 
 class NeuralNetWrapper():
@@ -120,7 +120,7 @@ class NeuralNetWrapper():
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
 
-    def predict(self, X):
+    def predict_sync(self, X):
         self.model.train(False)
 
         x = torch.tensor(X, dtype=torch.float32, device=self.device)
@@ -128,12 +128,17 @@ class NeuralNetWrapper():
         p, v = torch.exp(p).cpu().detach().numpy(), v.cpu().detach().numpy()
         return (p, v)
 
+    async def predict(self, X):
+        return self.predict_sync(X)
+
+    async def predict_from_game(self, game_state):
+        return await self.predict([game_state.get_features()])
+
     async def __call__(self, X):
-        return self.predict(X)
+        return await self.predict(X)
 
     def train(self, dataset):
         params = self.params.nn.train_params
-        self.cache = {}
 
         optimizer = None
 

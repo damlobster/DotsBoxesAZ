@@ -24,6 +24,7 @@ params = utils.DotDict({
             "mcts_num_read": 1000,
             "mcts_cpuct": 1.0,
             "temperature": {0: 1.0, 5: 1e-50},  # {0:1.0}
+            "max_async_searches": 32,
         }
     },
     "nn": {
@@ -55,17 +56,21 @@ params = utils.DotDict({
     }
 })
 
+resnet = False
 
 def play_game(generation):
     if generation is None:
         raise ValueError("You should specify a generation!")
+    
+    # change parameters
     params.self_play.mcts.temperature = {0:1.0, 3:1e-50}
     params.self_play.noise = (1.0, 0.0)
+    params.self_play.mcts.mcts_num_read = 100
 
     model = ResNetZero(params) if resnet else SimpleNN()
-    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
+    #model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
     nn = NeuralNetWrapper(model, params)
-    sp = SelfPlay(nn, params)
+    sp = SelfPlay(nn.predict_from_game, params)
     game_state = BoxesState()
     sp.play_game(game_state)
     moves, visit_counts = sp.get_games_moves()
@@ -75,46 +80,44 @@ def play_game(generation):
 
 
 def check_randomness():
-    for i in range(20):
-        sp = SelfPlay(lambda state: (
-            np.ones(state.get_actions_size()), 0), params)
+    async def nn(state):
+        return np.ones(state.get_actions_size()), 0
+
+    for i in range(10):
+        sp = SelfPlay(nn, params)
         game_state = BoxesState()
         sp.play_game(game_state)
         moves, _ = sp.get_games_moves()
         print(moves)
 
 
-async def selfplay(n_games, nn):
+def selfplay(n_games, nn):
     game_state = BoxesState()
     sp = SelfPlay(nn, params)
     sp.play_games(game_state, n_games, show_progress=True)
     return sp.get_training_data()
 
+async def random_nn(state):
+        return (np.ones(state.get_actions_size()), 0)
 
-def generate_games():
-    raise ValueError("TODO: flatten chunks")
-    def nn(state): return (np.ones(state.get_actions_size()), 0)
-
+def generate_random_games():
     with mp.Pool(mp.cpu_count()) as pool:
         for i in range(1):
-            results = [pool.apply_async(selfplay, args=(10, nn))
-                       for _ in range(120)]
-            data = [p.get() for p in results]
+            results = [pool.apply_async(selfplay, args=(1, random_nn))
+                       for _ in range(12)]
+            data = [sample for p in results for sample in p.get()]
             with open("./data/selfplay{}.pkl".format(i), "wb") as f:
                 pickle.dump(list(data), f)
 
 
-
-
-resnet = False
-
-def train_nn(generation, to_idx=int(1e12)):
+def train_nn(generation="1", to_idx="1e12"):
     print("Generation is the next one for which we train the model", flush=True)
     assert generation is not None
     generation = int(generation)
-    ds = utils.PickleDataset("./data/", file="selfplay{}.pkl".format(generation-1), to_idx=to_idx)
+    ds = utils.PickleDataset("./data/", file="selfplay{}.pkl".format(generation-1), to_idx=int(to_idx))
+    print(ds[0])
     model = ResNetZero(params)  if resnet else SimpleNN()
-    model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation-1))
+    #model.load_parameters("./temp/tests_nn_model_{}.pkl".format(generation-1))
     wrapper = NeuralNetWrapper(model, params)
     wrapper.train(ds)
     wrapper.save_model_parameters("./temp/tests_nn_model_{}.pkl".format(generation))
@@ -142,14 +145,14 @@ def predict_nn(generation):
         print("v=", v.item())
 
 
-def selfplay_nn(generation, n_game=1000):
+def selfplay_nn(generation, n_game=1):
     print("Generation is the next one for which we generate samples")
     assert generation is not None
     model = ResNetZero(params) if resnet else SimpleNN()
     model.load_parameters("./temp/tests_nn_model_{}.pkl".format(int(generation)-1))
     nn = NeuralNetWrapper(model, params)
 
-    results = selfplay(int(n_game), nn)
+    results = selfplay(int(n_game), nn.predict_from_game)
     with open("./data/selfplay{}.pkl".format(generation), "wb") as f:
         pickle.dump(list(results), f)
 
@@ -158,13 +161,13 @@ def async_selfplay(generation, n_games=1000):
     print("Generation is the next one for which we generate samples")
     assert generation is not None
 
-    def build_X(games_state_batch):
-        return np.concatenate(tuple(gs.game_state.get_features() for gs in games_state_batch))
-
     model = ResNetZero(params) if resnet else SimpleNN()
     model.load_parameters(
         "./temp/tests_nn_model_{}.pkl".format(int(generation)-1))
     nn = NeuralNetWrapper(model, params)
+
+    build_X = lambda states_batch: \
+        np.concatenate(tuple(gs.game_state.get_features() for gs in states_batch))
 
     batched_nn = AsyncBatchedProxy(nn, build_X, 64)
 

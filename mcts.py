@@ -112,13 +112,14 @@ def create_root_uct_node(game_state):
     return UCTNode(game_state, move=None, parent=DummyNode())
 
 
-def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
+@DeprecationWarning
+def UCT_search_sync(root_node: UCTNode, num_reads, nn, cpuct=1.0):
     UCTNode.CPUCT = cpuct
     root_node.parent = DummyNode()
     for _ in range(num_reads):
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
-            child_priors, value_estimate = nn(leaf.game_state) ###### !!!!!!!!!
+            child_priors, value_estimate = nn(leaf.game_state)
         else:
             child_priors, value_estimate = np.zeros(
                 leaf.game_state.get_actions_size()), leaf.game_state.get_result()
@@ -130,19 +131,44 @@ def UCT_search(root_node: UCTNode, num_reads, nn, cpuct=1.0):
     return root_node.child_number_visits
 
 
-async def UCT_search_async(root_node: UCTNode, num_reads, nn, cpuct=1.0):
-    def async_callback(leaf, pv):
-        priors, value_estimate = pv
-        leaf.expand(priors * leaf.game_state.get_valid_moves(as_indices=False))
-        leaf.backup(value_estimate)
+def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, max_pending_evals=8):
+    _loop = loop if loop else asyncio.get_event_loop()
 
-    UCTNode.CPUCT = cpuct
-    root_node.parent = DummyNode()
-    for _ in range(num_reads):
+    async def _search():
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
-            await nn(leaf, partial(async_callback, leaf))
+            child_priors, value_estimate = await async_nn(leaf.game_state)
         else:
-            async_callback(leaf, (np.zeros(leaf.game_state.get_actions_size()),
-                           leaf.game_state.get_result()))
+            child_priors, value_estimate = np.zeros(
+                leaf.game_state.get_actions_size()), leaf.game_state.get_result()
+
+        leaf.expand(child_priors *
+                    leaf.game_state.get_valid_moves(as_indices=False))
+        leaf.backup(value_estimate)
+
+    async def search():
+        UCTNode.CPUCT = cpuct
+        root_node.parent = DummyNode()
+
+        if not root_node.is_expanded:
+            await asyncio.wait_for(_search(), None, loop=_loop)
+
+        max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
+        pending = set()
+        for i in range(num_reads):
+            if len(pending) >= max_pend:
+                _, pending = await asyncio.wait(pending, loop=_loop, return_when=asyncio.FIRST_COMPLETED)
+                max_pend = max_pending_evals
+            pending.add(_loop.create_task(_search()))
+
+        if len(pending) > 0:
+            done, pending = await asyncio.wait(pending, loop=_loop)
+ 
+    _loop.run_until_complete(_loop.create_task(search()))
+ 
     return root_node.child_number_visits
+
+def print_mcts_tree(root_node: UCTNode, prefix=""):
+    print("{}{} -> {}".format(prefix, root_node.move, root_node.game_state.hash))
+    for node in root_node.children.values():
+        print_mcts_tree(node, prefix + "    ")
