@@ -131,13 +131,13 @@ def UCT_search_sync(root_node: UCTNode, num_reads, nn, cpuct=1.0):
     return root_node.child_number_visits
 
 
-def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, max_pending_evals=8):
+def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, max_pending_evals=8, dirichlet=(1.0, 0.25)):
     _loop = loop if loop else asyncio.get_event_loop()
 
     async def _search():
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
-            child_priors, value_estimate = await async_nn(leaf.game_state)
+            child_priors, value_estimate = await async_nn([leaf.game_state], True)
         else:
             child_priors, value_estimate = np.zeros(
                 leaf.game_state.get_actions_size()), leaf.game_state.get_result()
@@ -152,6 +152,14 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
 
         if not root_node.is_expanded:
             await asyncio.wait_for(_search(), None, loop=_loop)
+            
+        # add noise to root_node.child_priors
+        alpha, coeff = dirichelet
+        probs = root_node.child_priors / root_node.child_priors.sum()
+        valid_actions = root_node.game_state.get_valid_moves()
+        valid_actions[valid_actions == 0] = 1e-60
+        noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
+        root_node.child_priors = (1-coeff)*probs + coeff*noise
 
         max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
         pending = set()
@@ -164,8 +172,7 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
         if len(pending) > 0:
             done, pending = await asyncio.wait(pending, loop=_loop)
  
-    _loop.run_until_complete(_loop.create_task(search()))
- 
+    _loop.run_until_complete(search())
     return root_node.child_number_visits
 
 def print_mcts_tree(root_node: UCTNode, prefix=""):

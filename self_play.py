@@ -17,7 +17,8 @@ class SelfPlay(object):
     def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
         visit_counts = mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
                                              self.params.mcts.mcts_cpuct, self.loop, 
-                                             self.params.mcts.max_async_searches)
+                                             self.params.mcts.max_async_searches, dirichlet)
+        """
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
 
         alpha, coeff = dirichelet
@@ -28,8 +29,10 @@ class SelfPlay(object):
         new_probs = (1-coeff)*probs + coeff*noise
 
         move = np.argmax(np.random.multinomial(
-            1, new_probs / new_probs.sum(), 1))
-        return move
+            1, probs / probs.sum(), 1))
+        return move"""
+        
+        return np.argmax(visit_counts)
 
     def play_game(self, game_state):
         params = self.params

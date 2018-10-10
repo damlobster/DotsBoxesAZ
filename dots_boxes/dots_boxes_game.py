@@ -55,8 +55,7 @@ class BoxesState(GameState):
     def play_(self, move):
         p, l, c = np.unravel_index(move, self.board.shape)
         if self.board[p, l, c] != 0:
-            raise ValueError("Illegal move: " + str(move) + "->" +
-                             str((p, l, c)) + "\n" + str(self))
+            raise ValueError("Illegal move: " + str(move) + "->" + str((p, l, c)) + "\n" + str(self))
 
         self.board[p, l, c] = 1
 
