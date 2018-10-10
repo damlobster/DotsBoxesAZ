@@ -1,20 +1,24 @@
-import numpy as np
+import sys
 import random
+from functools import partial
+import numpy as np
 import utils
 import mcts
-import sys
 
 
 class SelfPlay(object):
 
-    def __init__(self, nn, params):
-        self.nn = nn
+    def __init__(self, nn, params, asyncio_loop=None):
         self.played_games = []
         self.params = params.self_play
+        self.loop = asyncio_loop
+        self.nn = nn
 
     def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
-        visit_counts = mcts.UCT_search(
-            root_node, nb_mcts_searches, self.nn, self.params.mcts.mcts_cpuct)
+        visit_counts = mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
+                                             self.params.mcts.mcts_cpuct, self.loop, 
+                                             self.params.mcts.max_async_searches, dirichlet)
+        """
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
 
         alpha, coeff = dirichelet
@@ -25,8 +29,10 @@ class SelfPlay(object):
         new_probs = (1-coeff)*probs + coeff*noise
 
         move = np.argmax(np.random.multinomial(
-            1, new_probs / new_probs.sum(), 1))
-        return move
+            1, probs / probs.sum(), 1))
+        return move"""
+        
+        return np.argmax(visit_counts)
 
     def play_game(self, game_state):
         params = self.params

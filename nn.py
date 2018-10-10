@@ -110,38 +110,36 @@ class ResNetZero(nn.Module):
 
     def load_parameters(self, filename):
         print("Model loaded from:", filename)
-        self.load_state_dict(torch.load(filename))
+        self.load_state_dict(torch.load(filename, map_location=lambda storage, loc: storage))
 
 
 class NeuralNetWrapper():
     def __init__(self, model, params):
-        self.cache = {}
         self.params = params
         self.device = torch.device(
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
 
-    def predict(self, game_state: GameState):
+    def predict_sync(self, X):
         self.model.train(False)
-        if game_state in self.cache:
-            return self.cache[game_state]
 
-        x = torch.tensor([game_state.get_features()],
-                         dtype=torch.float32, device=self.device)
+        x = torch.tensor(X, dtype=torch.float32, device=self.device)
         p, v = self.model.forward(x)
         p, v = torch.exp(p).cpu().detach().numpy(), v.cpu().detach().numpy()
-        self.cache[game_state] = (p, v)
         return (p, v)
 
-    def __call__(self, game_state):
-        return self.predict(game_state)
+    async def predict(self, X):
+        return self.predict_sync(X)
+
+    async def predict_from_game(self, game_state):
+        return await self.predict([game_state.get_features()])
+
+    async def __call__(self, X):
+        return await self.predict(X)
 
     def train(self, dataset):
         params = self.params.nn.train_params
-        self.cache = {}
-
-        optimizer = None
-
+        
         split_idx = int(len(dataset)*params.train_split)
         train_data, validation_data = data.random_split(
             dataset, [split_idx, len(dataset)-split_idx])
@@ -150,11 +148,13 @@ class NeuralNetWrapper():
         validation_data = data.DataLoader(
             validation_data, params.val_batch_size)
 
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=params.lr, betas=params.adam_betas)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, *params.lr_scheduler)
+
         for epoch in range(params.nb_epochs):
-            if epoch in params.lr:
-                print("Update lr: ", params.lr[epoch])
-                optimizer = torch.optim.Adam(
-                    self.model.parameters(), lr=params.lr[epoch], betas=params.adam_betas)
+            lr_scheduler.step()
+
             self.model.train(True)
             train_loss = 0.0
             for boards, pi, z in train_data:
@@ -164,7 +164,7 @@ class NeuralNetWrapper():
                 z = z.requires_grad_(True).to(self.device)
 
                 p, v = self.model(boards)
-                loss_pi = self.loss_pi(p, pi)
+                loss_pi = self.loss_pi(p, pi)*0.0
                 loss_v = self.loss_v(v, z)
                 loss_reg = self.loss_reg()
                 loss = (loss_v + loss_pi + loss_reg)/len(train_data)
@@ -173,31 +173,32 @@ class NeuralNetWrapper():
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
-            self.model.train(False)
+            
             val_loss = 0.0
-            for boards, pi, z in validation_data:
-                # Transfer to GPU
-                boards = boards.to(self.device)
-                pi = pi.to(self.device)
-                z = z.to(self.device)
+            if params.train_split != 1.0:
+                self.model.train(False)
+                for boards, pi, z in validation_data:
+                    # Transfer to GPU
+                    boards = boards.to(self.device)
+                    pi = pi.to(self.device)
+                    z = z.to(self.device)
 
-                p, v = self.model(boards)
-                loss_pi = self.loss_pi(p, pi)
-                loss_v = self.loss_v(v, z)
-                loss_reg = 0.0 #self.loss_reg()
-                loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
-                val_loss += loss.item()
+                    p, v = self.model(boards)
+                    loss_pi = self.loss_pi(p, pi)*0.0
+                    loss_v = self.loss_v(v, z)
+                    loss_reg = 0.0 #self.loss_reg()
+                    loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
+                    val_loss += loss.item()
 
             print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
                 epoch+1, train_loss, val_loss,))
 
     def loss_pi(self, p, pi):
-        loss_pi = -(pi * p).sum()/pi.size()[0]
+        loss_pi = -(pi * p).sum(1).mean()
         return loss_pi
 
     def loss_v(self, v, z):
-        loss_v = (z - v).pow(2).sum()/z.size()[0]
+        loss_v = (z - v).pow(2).mean()
         return loss_v
 
     def loss_reg(self):
