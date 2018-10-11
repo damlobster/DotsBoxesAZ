@@ -1,3 +1,4 @@
+import logging
 import sys
 import random
 from functools import partial
@@ -14,23 +15,17 @@ class SelfPlay(object):
         self.loop = asyncio_loop
         self.nn = nn
 
-    def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichelet):
+    def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichlet):
         visit_counts = mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
                                              self.params.mcts.mcts_cpuct, self.loop, 
                                              self.params.mcts.max_async_searches, dirichlet)
-        """
+        
+        # apply temperature
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
-
-        alpha, coeff = dirichelet
-        probs = probs / probs.sum()
-        valid_actions = root_node.game_state.get_valid_moves()
-        valid_actions[valid_actions == 0] = 1e-60
-        noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
-        new_probs = (1-coeff)*probs + coeff*noise
-
-        move = np.argmax(np.random.multinomial(
-            1, probs / probs.sum(), 1))
-        return move"""
+        probs = probs / (1.000001*probs.sum()) # TODO: p/p.sum() is sometimes > 1
+        sampled = np.random.multinomial(1, np.append(probs, 0), 1)
+        move = np.argmax(sampled)
+        return move
         
         return np.argmax(visit_counts)
 
@@ -51,6 +46,7 @@ class SelfPlay(object):
             next_node = None
             if params.reuse_mcts_tree:
                 next_node = root_node.children[move]
+                next_node.parent = mcts.DummyNode()
                 del(root_node.children)
             else:
                 next_node = mcts.create_root_uct_node(
