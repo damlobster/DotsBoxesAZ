@@ -1,9 +1,10 @@
-from game import GameState
+import logging
 import copy
 import math
-import numpy as np
 import random
+import numpy as np
 
+from game import GameState
 
 class BoxesState(GameState):
     __slots__ = 'hash', 'board', 'player', 'next_player', 'boxes_to_close'
