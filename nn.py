@@ -38,12 +38,12 @@ class ResBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(nb_channels)
 
     def forward(self, x):
-        x = self.bn1(self.conv1(x))
-        x = F.relu(x)
-        x = self.bn2(self.conv2(x))
-        x += x
-        x = F.relu(x)
-        return x
+        _x = self.bn1(self.conv1(x))
+        _x = F.relu(_x)
+        _x = self.bn2(self.conv2(_x))
+        _x += x
+        _x = F.relu(_x)
+        return _x
 
 
 def _create_conv_layer(in_channels, out_channels, kernel_size):
