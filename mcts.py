@@ -7,17 +7,22 @@ import numpy as np
 from game import GameState
 from utils import DictWithDefault
 
+debug_tree = True
 
 class DummyNode():
     def __init__(self):
         self.parent = None
         self.child_total_value = collections.defaultdict(float)
         self.child_number_visits = collections.defaultdict(float)
+        self.deepness = -1
+        self.max_deepness = 0
+        self.terminal_states_count = False
 
 
 class UCTNode():
-    __slots__ = ('game_state', 'move', 'is_expanded', 'parent', 'children',
-                 'child_priors', 'child_total_value', 'child_number_visits', 'is_terminal')
+    __slots__ = ['game_state', 'move', 'is_expanded', 'parent', 'children',
+                 'child_priors', 'child_total_value', 'child_number_visits', 
+                 'is_terminal', "deepness"]
 
     CPUCT = 1.0
 
@@ -34,6 +39,9 @@ class UCTNode():
             [game_state.get_actions_size()], dtype=np.float32)
         self.child_number_visits = np.zeros(
             [game_state.get_actions_size()], dtype=np.float32)
+
+        if debug_tree:
+            self.deepness = parent.deepness + 1
 
     @property
     def number_visits(self):
@@ -72,12 +80,6 @@ class UCTNode():
         current.number_visits += 1
         current.total_value -= 1
         return current
-
-    # def maybe_add_child(self, move):
-    #     if move not in self.children:
-    #         self.children[move] = UCTNode(
-    #             self.game_state.play(move), move, parent=self)
-    #     return self.children[move]
     
     def expand(self, child_priors):
         if not self.is_terminal:
@@ -91,6 +93,10 @@ class UCTNode():
             v = v if current.game_state.player == current.game_state.next_player else -v
             current.total_value += v + 1
             current = current.parent
+        
+        if debug_tree:
+            current.terminal_states_count += self.is_terminal
+            current.max_deepness = max(current.max_deepness, self.deepness)
 
     def __repr__(self):
         string = []
@@ -154,7 +160,7 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
             await asyncio.wait_for(_search(), None, loop=_loop)
             
         # add noise to root_node.child_priors
-        alpha, coeff = dirichelet
+        alpha, coeff = dirichlet
         probs = root_node.child_priors / root_node.child_priors.sum()
         valid_actions = root_node.game_state.get_valid_moves()
         valid_actions[valid_actions == 0] = 1e-60
@@ -173,6 +179,11 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
             done, pending = await asyncio.wait(pending, loop=_loop)
  
     _loop.run_until_complete(search())
+
+    if debug_tree:
+        print("deepness=", root_node.parent.max_deepness-root_node.deepness+root_node.parent.deepness, 
+              "#terminal states=", root_node.parent.terminal_states_count)
+
     return root_node.child_number_visits
 
 def print_mcts_tree(root_node: UCTNode, prefix=""):
