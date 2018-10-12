@@ -1,3 +1,6 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 import asyncio
 import sys
 import numpy as np
@@ -12,6 +15,7 @@ from dots_boxes.dots_boxes_nn import SimpleNN
 import utils
 from utils import AsyncBatchedProxy
 
+BoxesState.set_board_dim((3,3))
 params = utils.DotDict({
     "game": {
         "board_size": BoxesState.BOARD_DIM,
@@ -21,9 +25,9 @@ params = utils.DotDict({
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "mcts": {
-            "mcts_num_read": 500,
+            "mcts_num_read": 50000,
             "mcts_cpuct": 1.0,
-            "temperature": {0: 1.0, 8: 1e-50},  # {0:1.0}
+            "temperature": {0: 1.0, 5: 1e-50},  # from 8th move we greedly take move with most visit count
             "max_async_searches": 32,
         }
     },
@@ -31,7 +35,7 @@ params = utils.DotDict({
         "pytorch_device": "cuda:1",
         "train_params": {
             "nb_epochs": 50,
-            "train_split": 1.0,
+            "train_split": 0.9,
             "train_batch_size": 50,
             "val_batch_size": 512,
             "lr": 0.01,
@@ -96,26 +100,26 @@ def check_randomness():
         moves, _ = sp.get_games_moves()
         print(moves)
 
-
 def selfplay(n_games, nn):
     game_state = BoxesState()
     sp = SelfPlay(nn, params)
-    sp.play_games(game_state, n_games, show_progress=True)
+    sp.play_games(game_state, n_games, show_progress=False)
+    sys.stdout.flush()
     return sp.get_training_data()
 
-async def random_nn(state):
-    p = np.random.uniform(0, 1, state.get_actions_size())
+async def random_nn(state, not_used):
+    p = np.random.uniform(0, 1, state[0].get_actions_size())
+    p = p * state[0].get_valid_moves()
     p = p/p.sum()
     return (p, 0)
 
 def generate_random_games():
     with mp.Pool(mp.cpu_count()) as pool:
-        for i in range(1):
-            results = [pool.apply_async(selfplay, args=(10, random_nn))
-                       for _ in range(200)]
-            data = [sample for p in results for sample in p.get()]
-            with open("./data/selfplay/selfplay{}.pkl".format(i), "wb") as f:
-                pickle.dump(list(data), f)
+        results = [pool.apply_async(selfplay, args=(10, random_nn))
+                    for _ in range(200)]
+        data = [sample for p in results for sample in p.get()]
+        with open("./data/selfplay/selfplay0.pkl", "wb") as f:
+            pickle.dump(list(data), f)
 
 
 def train_nn(generation=None, file=None, to_idx="1e12", epochs=None):

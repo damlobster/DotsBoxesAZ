@@ -5,6 +5,7 @@ import os
 import pickle
 import torch
 from torch.utils import data
+import pandas as pd
 
 
 class DotDict(dict):
@@ -61,6 +62,12 @@ class PickleDataset(data.Dataset):
 
         # Load data and get label
         return board, visits, np.asarray([value], dtype=np.float32)
+
+class PandasDataset(data.Dataset):
+    def __init__(self, hdf5_file):
+        self.df = None 
+        # TODO
+
 
 def default_batch_builder(states_batch):
     return np.concatenate(tuple(gs.get_features() for gs in states_batch))
