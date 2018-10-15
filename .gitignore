@@ -2,3 +2,5 @@
 .vscode/**
 data/**/*.pkl
 data/**/*.pt
+
+*.h5

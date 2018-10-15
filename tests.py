@@ -1,5 +1,5 @@
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 import asyncio
 import sys
@@ -8,12 +8,12 @@ import pickle
 import multiprocessing as mp
 import torch
 
-from self_play import SelfPlay
+from self_play import SelfPlay, generate_games
 from nn import NeuralNetWrapper, ResNetZero
 from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 from dots_boxes.dots_boxes_nn import SimpleNN
-import utils
-from utils import AsyncBatchedProxy
+import utils.utils as utils
+from utils.proxies import AsyncBatchedProxy
 
 BoxesState.set_board_dim((3,3))
 params = utils.DotDict({
@@ -25,7 +25,7 @@ params = utils.DotDict({
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "mcts": {
-            "mcts_num_read": 50000,
+            "mcts_num_read": 1000,
             "mcts_cpuct": 1.0,
             "temperature": {0: 1.0, 5: 1e-50},  # from 8th move we greedly take move with most visit count
             "max_async_searches": 32,
@@ -107,20 +107,21 @@ def selfplay(n_games, nn):
     sys.stdout.flush()
     return sp.get_training_data()
 
-async def random_nn(state, not_used):
-    p = np.random.uniform(0, 1, state[0].get_actions_size())
-    p = p * state[0].get_valid_moves()
+async def random_nn(state):
+    p = np.random.uniform(0, 1, state.get_actions_size())
+    p = p * state.get_valid_moves()
     p = p/p.sum()
     return (p, 0)
 
-def generate_random_games():
-    with mp.Pool(mp.cpu_count()) as pool:
+def generate_random_games(n_games):
+    generate_games("./data/selfplay/test.h5", 1, random_nn, int(n_games), params, n_workers=8, games_per_workers=None)
+"""    with mp.Pool(mp.cpu_count()) as pool:
         results = [pool.apply_async(selfplay, args=(10, random_nn))
                     for _ in range(200)]
         data = [sample for p in results for sample in p.get()]
         with open("./data/selfplay/selfplay0.pkl", "wb") as f:
             pickle.dump(list(data), f)
-
+"""
 
 def train_nn(generation=None, file=None, to_idx="1e12", epochs=None):
     print("Generation is the next one for which we train the model", flush=True)

@@ -6,7 +6,7 @@ import numpy as np
 from collections import namedtuple
 
 from game import GameState
-from utils import DictWithDefault
+from utils.utils import DictWithDefault
 
 tree_stats_enabled = True
 TreeStats = namedtuple('TreeStats', ['moves_nb', 'max_deepness', 'tree_size', 'terminal_count'])
@@ -23,7 +23,7 @@ class TreeRoot():
     
     def get_tree_stats(self):
         max_deepness = self.max_deepness - self.deepness_correction
-        tree_size = max(self.child_number_visits.values)
+        tree_size = max(self.child_number_visits.values())
         return TreeStats(self.deepness_correction, max_deepness, tree_size, self.terminal_states_count)
 
 
@@ -133,7 +133,7 @@ class UCTNode():
 def create_root_uct_node(game_state):
     root = TreeRoot()
     node = UCTNode(game_state, move=None, parent=root)
-    parent.first_node = node
+    root.first_node = node
     return node
 
 
@@ -142,12 +142,12 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     
     if reuse_tree:
         next_node = previous_node.children[move]
-        root = mcts.TreeRoot()
+        root = TreeRoot()
         next_node.parent = root
         root.first_node = next_node
         root.deepness_correction = next_node.deepness
         root.child_number_visits[move] = next_node.number_visits
-        del(previous.children)
+        del(previous_node.children)
     else:
         next_node = mcts.create_root_uct_node(
             root_node.children[move].game_state)
@@ -180,7 +180,7 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
     async def _search():
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
-            child_priors, value_estimate = await async_nn([leaf.game_state], True)
+            child_priors, value_estimate = await async_nn(leaf.game_state)
         else:
             child_priors, value_estimate = np.zeros(
                 leaf.game_state.get_actions_size()), leaf.game_state.get_result()
@@ -194,7 +194,7 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
         root_node.parent = TreeRoot()
 
         if not root_node.is_expanded:
-            await asyncio.wait_for(_search(), None, loop=_loop)
+            await _search()
             
         # add noise to root_node.child_priors
         alpha, coeff = dirichlet
@@ -202,6 +202,7 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
         valid_actions = root_node.game_state.get_valid_moves()
         valid_actions[valid_actions == 0] = 1e-60
         noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
+        noise *= root_node.game_state.get_valid_moves()
         root_node.child_priors = (1-coeff)*probs + coeff*noise
 
         max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
@@ -216,12 +217,6 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
             done, pending = await asyncio.wait(pending, loop=_loop)
  
     _loop.run_until_complete(search())
-
-    #TODO remove
-    #if tree_stats_enabled:
-    #    print("deepness=", root_node.parent.max_deepness-root_node.deepness+root_node.parent.deepness, 
-    #          "#terminal states=", root_node.parent.terminal_states_count)
-
     return root_node.child_number_visits
 
 def print_mcts_tree(root_node: UCTNode, prefix=""):

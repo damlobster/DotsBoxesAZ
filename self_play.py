@@ -1,13 +1,17 @@
+import asyncio
 import logging
 import sys
 import random
 from functools import partial
 import multiprocessing as mp
+#mpl = mp.log_to_stderr()
+#mpl.setLevel(logging.INFO)
 
 import numpy as np
 import pandas as pd
 
 import utils
+from utils.proxies import PipedProxy, pipe_proxy_init
 import mcts
 
 
@@ -31,7 +35,7 @@ class SelfPlay(object):
         move = np.argmax(sampled)
         return move
 
-    def play_game(self, game_state):
+    def play_game(self, game_state, idx):
         params = self.params
         temperature = None
 
@@ -51,13 +55,13 @@ class SelfPlay(object):
         moves_sequence.append(root_node) #add the terminal node
 
         self.played_games.append(
-            (moves_sequence, root_node.game_state.get_result()))
+            (idx, moves_sequence, root_node.game_state.get_result()))
 
-    def play_games(self, game_state, n_iters, show_progress=False):
-        for _ in range(n_iters):
+    def play_games(self, game_state, games_idxs, show_progress=False):
+        for idx in games_idxs:
             if show_progress:
                 print(".", end="", flush=True)
-            self.play_game(game_state)
+            self.play_game(game_state, idx)
 
     @DeprecationWarning
     def get_training_data(self, with_stats=True):
@@ -65,8 +69,9 @@ class SelfPlay(object):
         policies = []
         values = []
         stats = []
-        for moves_seq, result in self.played_games:
+        for game_idx, moves_seq, result in self.played_games:
             for node in reversed(moves_seq[:-1]):
+                games_idxs.append(game_idx)
                 features.append(node.game_state.get_features())
                 policies.append(node.child_number_visits /
                                 node.child_number_visits.sum())
@@ -87,46 +92,88 @@ class SelfPlay(object):
         vc = np.asarray(visit_counts, dtype=float)
         return moves, vc
 
-    def get_datasets(self, generation, start_idx=0):
+    def get_datasets(self, generation):
         game_idxs = []
         moves_idxs = []
         features = []
         policies = []
         values = []
         stats = []
-        for game_i, (moves_seq, result) in enumerate(self.played_games):
-            for move_i, node in reversed(enumerate(moves_seq[:-1])):
-                game_idxs.append(start_idx + game_i)
+        for game_idx, moves_seq, result in self.played_games:
+            for move_i, node in reversed(list(enumerate(moves_seq[:-1]))):
+                game_idxs.append(game_idx)
                 moves_idxs.append(move_i)
-                features.append(node.game_state.get_features())
+                features.append(node.game_state.get_features().ravel())
                 policies.append(node.child_number_visits /
                                 node.child_number_visits.sum())
                 values.append(result)
                 stats.append(node.get_tree_stats())
                 if node.game_state.player != node.game_state.next_player:
                     result = result * -1
-                
-        index = {"generation":generation ,"game_idx":game_idxs, "move_idx":move_idxs}
-        data = {"features":features, "policy":policies, "value":values}
-        data_df = pd.DataFrame(data, index)
-        mcts_stats_df = pd.from_records(stats, index)
+        
+        data = {"generation": [generation]*len(game_idxs), "game_idx": game_idxs, 
+                "move_idx": moves_idxs, "features": features, 
+                "policy": policies, "value": values}
+        data_df = pd.DataFrame(data).set_index(["generation", "game_idx", "move_idx"])
+
+        mcts_stats_df = pd.DataFrame.from_records(stats, data_df.index, columns=[
+                                                  'moves_nb', 'max_deepness', 'tree_size', 'terminal_count'])
         return data_df, mcts_stats_df
 
-def _selfplay_worker(generation, n_games, nn_proxy, params, start_idx):
+_params = None
+def _selfplay_worker_init(params):
+    global _params
+    _params = params
+    pipe_proxy_init()
+
+def _selfplay_worker(generation, games_idxs):
+    import self_play
+    from dots_boxes.dots_boxes_game import BoxesState
+    import utils.proxies
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     game_state = BoxesState()
-    sp = SelfPlay(nn, params)
-    sp.play_games(game_state, n_games, show_progress=False)
-    sys.stdout.flush()
-    return sp.get_datasets(generation, start_idx)
+    sp = self_play.SelfPlay(utils.proxies.pipe_proxy, _params)
+    sp.play_games(game_state, games_idxs, show_progress=True)
+    return sp.get_datasets(generation)
 
-def generate_games(generation, nn_proxy, n_games, params, n_workers=None, games_per_workers=None):
-    nw = mp.cpu_count()-1 if n_workers is None else n_workers
-    gpw = max(1, n_games//nw) if games_per_workers is None else games_per_workers
-    assert n_games % gpw == 0, "%d is not a multiple of %d" % (n_games, gpw)
 
-    with mp.Pool(nw) as pool:
-        results = [pool.apply_async(selfplay, args=(generation, nn, gpw, params, start_idx)) 
-                   for start_idx in range(0, n_games, gpw)]
-        datas, stats = zip(*[r.get() for r in results])
+def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=None, games_per_workers=None):
+    def write_to_hdf(result):
+        data, stats = result
+        with pd.HDFStore(hdf_file_name, mode="a") as store:
+            features = np.stack(data.features.values, axis=0)
+            features = pd.DataFrame(features, columns=range(48), index=data.index)
+            store.append("data/features",features, format="table")
 
-        return pd.concat(datas, copy=False), pd.concat(stats, copy=False)
+            policies = np.stack(data.policy.values, axis=0)
+            policies = pd.DataFrame(policies, columns=range(32), index=data.index)
+            store.append("data/policy", pd.DataFrame(policies, columns=range(32)), format="table")
+            store.append("data/value", data["value"], format="table")
+            store.append("stats", stats, format="table")
+
+    def err_cb(err):
+        raise err
+        
+    nw = n_workers if n_workers else mp.cpu_count() - 1
+    gpw = games_per_workers if games_per_workers else max(1, n_games//nw)
+    games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
+
+    with mp.Pool(nw, initializer=_selfplay_worker_init, initargs=(params,)) as pool:
+        loop = asyncio.get_event_loop()
+        nn_worker = utils.proxies.PipedProxy(nn, loop, pool)
+        proxy_task = asyncio.ensure_future(nn_worker.run(), loop=loop)
+        
+        try:
+            for idxs in games_idxs:
+                pool.apply_async(_selfplay_worker, args=(generation, list(idxs)),
+                                callback=write_to_hdf, error_callback=err_cb)
+                            
+            pool.close()
+            workers_task = loop.run_in_executor(None, pool.join)
+            loop.run_until_complete(asyncio.gather(workers_task, proxy_task))
+        except Exception:
+            pool.terminate()
+            raise
+        finally:
+            loop.close()

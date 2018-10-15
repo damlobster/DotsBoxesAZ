@@ -1,3 +1,4 @@
+import asyncio
 import numpy as np
 import torch
 from torch import nn
@@ -129,7 +130,9 @@ class NeuralNetWrapper():
         return (p, v)
 
     async def predict(self, X):
-        return self.predict_sync(X)
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(None, self.predict_sync, X)
+        return await future.result()
 
     async def predict_from_game(self, game_state):
         return await self.predict([game_state.get_features()])

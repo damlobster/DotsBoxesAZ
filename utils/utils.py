@@ -1,4 +1,5 @@
 import asyncio
+import multiprocessing as mp
 import copy
 import numpy as np
 import os
@@ -16,7 +17,12 @@ class DotDict(dict):
     set attributes: d.val2 = 'second' or d['val2'] = 'second'
     get attributes: d.val2 or d['val2']
     """
-    __getattr__ = dict.__getitem__
+
+    def __getattr__(self, attr):
+        if attr.startswith('__'):
+            raise AttributeError
+        return self.get(attr, None)
+        
     __delattr__ = dict.__delitem__
 
     def __init__(self, dct):
@@ -63,16 +69,28 @@ class PickleDataset(data.Dataset):
         # Load data and get label
         return board, visits, np.asarray([value], dtype=np.float32)
 
-class PandasDataset(data.Dataset):
-    def __init__(self, hdf5_file):
-        self.df = None 
-        # TODO
+
+class HDFStoreDataset(data.Dataset):
+    def __init__(self, hdf_store:pd.HDFStore, key, where=None):
+        super(HDFStoreDataset, self).__init__()
+        if query is None:
+            self.df = hdf_store[key]
+        else:
+            self.df = hdf_store.select(key, query)
+            self.df.reset_index(inplace=True)
+
+    def __len__(self):
+        return len(self.df.index)
+
+    def __getitem__(self, index):
+        board, visits, value = self.df.iloc[index]
+        return board, visits, np.asarray([value], dtype=np.float32)
 
 
 def default_batch_builder(states_batch):
     return np.concatenate(tuple(gs.get_features() for gs in states_batch))
 
-class AsyncBatchedProxy():
+"""class AsyncBatchedProxy():
     def __init__(self, func, batch_size, batch_builder=default_batch_builder,
                  max_queue_size=None, loop=asyncio.get_event_loop()):
         super(AsyncBatchedProxy, self).__init__()
@@ -109,3 +127,55 @@ class AsyncBatchedProxy():
                     fut.set_result((p, v))
 
                 batch, futs = [], []
+
+
+class PipedProxy():
+    class CallerProxy():
+        def __init__(self, pipe):
+            self.pipe = pipe
+
+        async def __call__(self, *args, **kwargs):
+            if self.pipe.closed:
+                raise ConnectionError("Pipe already closed!")
+            call = functools.partial(child.send, (args, kwargs))
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, call)
+            return await loop.run_in_executor(None, child.recv)
+            
+
+    def __init__(self, func, batch_size=8):
+        self.func = func
+        self.batch_size = batch_size
+        self.parent, self.child = mp.connection.Pipe()
+        self.is_running = False
+
+    def get_caller_proxy(self):
+        async def caller_proxy(*args, **kwargs):
+
+
+
+def create_pipe_proxy(func):
+    parent, child = Pipe()
+
+    async def caller(*args, **kwargs):
+        if child.closed:
+            raise ConnectionError("Pipe already closed!")
+        call = functools.partial(child.send, (args, kwargs))
+        await asyncio.get_event_loop().run_in_executor(None, call)
+        return await asyncio.get_event_loop().run_in_executor(None, child.recv)
+    caller.close = lambda: child.close()
+
+    async def callee():
+        callee._closed = False
+        while not callee._closed:
+            args, kwargs = await asyncio.get_event_loop().run_in_executor(None, parent.recv)
+            res = await func(*args, **kwargs)
+            await asyncio.get_event_loop().run_in_executor(None, parent.send, res)
+        parent.close()
+
+    def c():
+        callee._closed = True
+    callee.close = c
+
+    return callee, caller
+"""
