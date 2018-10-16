@@ -63,25 +63,6 @@ class SelfPlay(object):
                 print(".", end="", flush=True)
             self.play_game(game_state, idx)
 
-    @DeprecationWarning
-    def get_training_data(self, with_stats=True):
-        features = []
-        policies = []
-        values = []
-        stats = []
-        for game_idx, moves_seq, result in self.played_games:
-            for node in reversed(moves_seq[:-1]):
-                games_idxs.append(game_idx)
-                features.append(node.game_state.get_features())
-                policies.append(node.child_number_visits /
-                                node.child_number_visits.sum())
-                values.append(result)
-                stats.append(node.get_tree_stats())
-                if node.game_state.player != node.game_state.next_player:
-                    result = result * -1
-                
-        return features, policies, values, stats
-
     def get_games_moves(self):
         moves = []
         visit_counts = []
