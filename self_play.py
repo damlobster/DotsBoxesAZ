@@ -17,15 +17,14 @@ import mcts
 
 class SelfPlay(object):
 
-    def __init__(self, nn, params, asyncio_loop=None):
+    def __init__(self, nn, params):
         self.played_games = []
         self.params = params.self_play
-        self.loop = asyncio_loop
         self.nn = nn
 
-    def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichlet):
-        visit_counts = mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
-                                             self.params.mcts.mcts_cpuct, self.loop, 
+    async def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichlet):
+        visit_counts = await mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
+                                             self.params.mcts.mcts_cpuct,
                                              self.params.mcts.max_async_searches, dirichlet)
         
         # apply temperature
@@ -35,7 +34,7 @@ class SelfPlay(object):
         move = np.argmax(sampled)
         return move
 
-    def play_game(self, game_state, idx):
+    async def play_game(self, game_state, idx):
         params = self.params
         temperature = None
 
@@ -46,8 +45,8 @@ class SelfPlay(object):
             i += 1
             if i in params.mcts.temperature:
                 temperature = params.mcts.temperature[i]
-            move = self.get_next_move(
-                root_node, params.mcts.mcts_num_read, temperature, params.noise)
+            move = await self.get_next_move(root_node, params.mcts.mcts_num_read, 
+                                            temperature, params.noise)
             
             moves_sequence.append(root_node)
             root_node = mcts.init_mcts_tree(root_node, move, reuse_tree=params.reuse_mcts_tree)
@@ -57,11 +56,11 @@ class SelfPlay(object):
         self.played_games.append(
             (idx, moves_sequence, root_node.game_state.get_result()))
 
-    def play_games(self, game_state, games_idxs, show_progress=False):
+    async def play_games(self, game_state, games_idxs, show_progress=False):
         for idx in games_idxs:
             if show_progress:
                 print(".", end="", flush=True)
-            self.play_game(game_state, idx)
+            await self.play_game(game_state, idx)
 
     def get_games_moves(self):
         moves = []
@@ -113,9 +112,10 @@ def _selfplay_worker(generation, games_idxs):
     import utils.proxies
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    game_state = BoxesState()
     sp = self_play.SelfPlay(utils.proxies.pipe_proxy, _params)
-    sp.play_games(game_state, games_idxs, show_progress=True)
+    loop.run_until_complete(
+        sp.play_games(BoxesState(), games_idxs, show_progress=True))
+    loop.close()
     return sp.get_datasets(generation)
 
 
@@ -141,13 +141,16 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
     games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
     
     loop = asyncio.get_event_loop()
+    asyncio.set_event_loop(loop)
+    tasks = []
+
     sp_params = params.self_play
-    nn = AsyncBatchedProxy(nn, batch_size=sp_params.nn_batch_size, timeout=sp_params.nn_batch_timeout, loop=loop, batch_builder=sp_params.nn_batch_builder)
-    asyncio.ensure_future(nn.run(), loop=loop)
+    nn = AsyncBatchedProxy(nn, batch_size=sp_params.nn_batch_size, timeout=sp_params.nn_batch_timeout, batch_builder=sp_params.nn_batch_builder)
+    tasks.append(asyncio.ensure_future(nn.run(), loop=loop))
 
     with mp.Pool(nw, initializer=_selfplay_worker_init, initargs=(params,)) as pool:
         nn_worker = utils.proxies.PipedProxy(nn, loop, pool)
-        proxy_task = asyncio.ensure_future(nn_worker.run(), loop=loop)
+        tasks.append(asyncio.ensure_future(nn_worker.run()))
         
         try:
             for idxs in games_idxs:
@@ -156,9 +159,12 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
                             
             pool.close()
             workers_task = loop.run_in_executor(None, pool.join)
-            loop.run_until_complete(asyncio.gather(workers_task, proxy_task))
+            loop.run_until_complete(asyncio.gather(workers_task))
         except Exception:
             pool.terminate()
             raise
         finally:
+            for t in tasks:
+                t.cancel()
+            loop.run_until_complete(asyncio.sleep(0.001))
             loop.close()

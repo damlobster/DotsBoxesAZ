@@ -177,9 +177,7 @@ def UCT_search_sync(root_node: UCTNode, num_reads, nn, cpuct=1.0):
     return root_node.child_number_visits
 
 
-def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, max_pending_evals=8, dirichlet=(1.0, 0.25)):
-    _loop = loop if loop else asyncio.get_event_loop()
-
+async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=8, dirichlet=(1.0, 0.25)):
     async def _search():
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
@@ -192,33 +190,31 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
                     leaf.game_state.get_valid_moves(as_indices=False))
         leaf.backup(value_estimate)
 
-    async def search():
-        UCTNode.CPUCT = cpuct
+    UCTNode.CPUCT = cpuct
 
-        if not root_node.is_expanded:
-            await _search()
-            
-        # add noise to root_node.child_priors
-        alpha, coeff = dirichlet
-        probs = root_node.child_priors / root_node.child_priors.sum()
-        valid_actions = root_node.game_state.get_valid_moves()
-        valid_actions[valid_actions == 0] = 1e-60
-        noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
-        noise *= root_node.game_state.get_valid_moves()
-        root_node.child_priors = (1-coeff)*probs + coeff*noise
+    if not root_node.is_expanded:
+        await _search()
+        
+    # add noise to root_node.child_priors
+    alpha, coeff = dirichlet
+    probs = root_node.child_priors / root_node.child_priors.sum()
+    valid_actions = root_node.game_state.get_valid_moves()
+    valid_actions[valid_actions == 0] = 1e-60
+    noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
+    noise *= root_node.game_state.get_valid_moves()
+    root_node.child_priors = (1-coeff)*probs + coeff*noise
 
-        max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
-        pending = set()
-        for i in range(num_reads):
-            if len(pending) >= max_pend:
-                _, pending = await asyncio.wait(pending, loop=_loop, return_when=asyncio.FIRST_COMPLETED)
-                max_pend = max_pending_evals
-            pending.add(_loop.create_task(_search()))
+    max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
+    pending = set()
+    for i in range(num_reads):
+        if len(pending) >= max_pend:
+            _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            max_pend = max_pending_evals
+        pending.add(asyncio.ensure_future(_search()))
 
-        if len(pending) > 0:
-            done, pending = await asyncio.wait(pending, loop=_loop)
+    if len(pending) > 0:
+        done, pending = await asyncio.wait(pending)
  
-    _loop.run_until_complete(search())
     return root_node.child_number_visits
 
 def print_mcts_tree(root_node: UCTNode, prefix=""):
