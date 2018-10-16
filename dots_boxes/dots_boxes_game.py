@@ -9,12 +9,15 @@ from game import GameState
 class BoxesState(GameState):
     __slots__ = 'hash', 'board', 'player', 'next_player', 'boxes_to_close'
     BOARD_DIM = (3, 3)
+    FEATURES_SHAPE = (3, BOARD_DIM[0], BOARD_DIM[1])
     NB_ACTIONS = 2 * (BOARD_DIM[0]+1) * (BOARD_DIM[1]+1)
     NB_BOXES = BOARD_DIM[0] * BOARD_DIM[1]
 
     @staticmethod
     def set_board_dim(dims):
         BoxesState.BOARD_DIM = dims
+        BoxesState.FEATURES_SHAPE = (
+            3, BoxesState.BOARD_DIM[0], BoxesState.BOARD_DIM[1])
         BoxesState.NB_ACTIONS = 2 * \
             (BoxesState.BOARD_DIM[0]+1) * (BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_BOXES = BoxesState.BOARD_DIM[0] * BoxesState.BOARD_DIM[1]
@@ -22,9 +25,9 @@ class BoxesState(GameState):
     def __init__(self):
         l, c = BoxesState.BOARD_DIM
         self.hash = (0, 0)
-        self.board = np.zeros((2, l+1, c+1), dtype=np.float32)
-        self.board[1, l, :] = 1e-12
-        self.board[0, :, c] = 1e-12
+        self.board = np.zeros((2, l+1, c+1), dtype=np.uint8)
+        self.board[1, l, :] = 1
+        self.board[0, :, c] = 1
         self.player = 0
         self.next_player = 0
         win_thres = BoxesState.NB_BOXES/2
@@ -34,22 +37,22 @@ class BoxesState(GameState):
         return self.NB_ACTIONS
 
     def get_valid_moves(self, as_indices=False):
-        m = self.board.ravel() == 0.0
+        m = self.board.ravel() == 0
         if as_indices:
             return np.argwhere(m).ravel().tolist()
         else:
-            return m.astype(float)
+            return m
 
     def get_result(self):
         if self.player is None:
             return None
 
         if self.boxes_to_close[0] == 0 and self.boxes_to_close[1] == 0:
-            return 0.0
+            return 0
         if self.boxes_to_close[self.player] < 0:
-            return 1.0
+            return 1
         elif self.boxes_to_close[1-self.player] < 0:
-            return -1.0
+            return -1
         else:
             return None
 
@@ -58,18 +61,18 @@ class BoxesState(GameState):
         if self.board[p, l, c] != 0:
             raise ValueError("Illegal move: " + str(move) + "->" + str((p, l, c)) + "\n" + str(self))
 
-        self.board[p, l, c] = 1
+        self.board[p, l, c] = 255
 
         closed_idx = []
         if p == 0:  # horizontal edge
-            if l > 0 and self._check_box(l-1, c) > 0:
+            if l > 0 and self._check_box(l-1, c):
                 closed_idx.append((l-1, c))
-            if l < self.board.shape[1] - 1 and self._check_box(l, c) > 0:
+            if l < self.board.shape[1] - 1 and self._check_box(l, c):
                 closed_idx.append((l, c))
         else:  # vertical edge
-            if c > 0 and self._check_box(l, c-1) > 0:
+            if c > 0 and self._check_box(l, c-1):
                 closed_idx.append((l, c-1))
-            if c < self.board.shape[2] - 1 and self._check_box(l, c) > 0:
+            if c < self.board.shape[2] - 1 and self._check_box(l, c):
                 closed_idx.append((l, c))
 
         self.player = self.next_player
@@ -87,14 +90,14 @@ class BoxesState(GameState):
         return new_state
 
     def get_features(self):
-        board = self.board
-        player = np.full_like(
-            board[0], self.boxes_to_close[self.player], dtype=np.float32)
-        return np.concatenate((board, np.expand_dims(player, 0)), axis=0)
+        board = self.board//255
+        boxes_to_close = np.full_like(
+            board[0], self.boxes_to_close[self.player]*2, dtype=np.int8)
+        return np.concatenate((board, np.expand_dims(boxes_to_close, 0)), axis=0)
 
     def _check_box(self, l, c):
         edges_idx = ((0, 0, 1, 1), (l, l+1, l, l), (c, c, c, c+1))
-        return math.floor(self.board[edges_idx].sum()/4)
+        return self.board[edges_idx].sum()==4*255
 
     def _update_hash(self, move):
         b, _ = self.hash
@@ -119,7 +122,7 @@ class BoxesState(GameState):
         for l in range(lines):
             s = "+"
             for c in range(cols-1):
-                if b[0, l, c] == 1:
+                if b[0, l, c] == 255:
                     s += "---+"
                 else:
                     s += "   +"
@@ -127,13 +130,15 @@ class BoxesState(GameState):
             s = ''
             if(l < lines-1):
                 for c in range(cols):
-                    if b[1, l, c] == 1:
+                    if b[1, l, c] == 255:
                         s += "|   "
                     else:
                         s += "    "
             strings.append(s)
         return "\n".join(strings)
 
+def nn_batch_builder(*game_states):
+    return np.stack([gs[0].get_features() for gs in game_states], axis=0)
 
 def moves_to_string(moves, visits_counts=None):
     g = BoxesState()
@@ -160,7 +165,7 @@ def moves_to_string(moves, visits_counts=None):
     for l in range(lines):
         s = "+"
         for c in range(cols-1):
-            if b[0, l, c] == 1:
+            if b[0, l, c] == 255:
                 s += "---+"
             else:
                 if vc is None:
@@ -174,7 +179,7 @@ def moves_to_string(moves, visits_counts=None):
         s = ''
         if(l < lines-1):
             for c in range(cols):
-                if b[1, l, c] == 1:
+                if b[1, l, c] == 255:
                     if c < cols-1:
                         s += "| " + boxes[l][c] + " "
                     else:

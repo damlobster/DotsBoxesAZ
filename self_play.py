@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import utils
-from utils.proxies import PipedProxy, pipe_proxy_init
+from utils.proxies import PipedProxy, pipe_proxy_init, AsyncBatchedProxy
 import mcts
 
 
@@ -158,9 +158,13 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
     nw = n_workers if n_workers else mp.cpu_count() - 1
     gpw = games_per_workers if games_per_workers else max(1, n_games//nw)
     games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
+    
+    loop = asyncio.get_event_loop()
+    sp_params = params.self_play
+    nn = AsyncBatchedProxy(nn, batch_size=sp_params.nn_batch_size, timeout=sp_params.nn_batch_timeout, loop=loop, batch_builder=sp_params.nn_batch_builder)
+    asyncio.ensure_future(nn.run(), loop=loop)
 
     with mp.Pool(nw, initializer=_selfplay_worker_init, initargs=(params,)) as pool:
-        loop = asyncio.get_event_loop()
         nn_worker = utils.proxies.PipedProxy(nn, loop, pool)
         proxy_task = asyncio.ensure_future(nn_worker.run(), loop=loop)
         

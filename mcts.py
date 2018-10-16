@@ -20,11 +20,12 @@ class TreeRoot():
         self.deepness = 0
         self.max_deepness = 0
         self.terminal_states_count = 0
+        self.tree_size = 0
     
     def get_tree_stats(self):
         max_deepness = self.max_deepness - self.deepness_correction
-        tree_size = max(self.child_number_visits.values())
-        return TreeStats(self.deepness_correction, max_deepness, tree_size, self.terminal_states_count)
+        #tree_size = self.number_visits # sum(self.child_number_visits.values()) 
+        return TreeStats(self.deepness_correction, max_deepness, self.tree_size, self.terminal_states_count)
 
 
 
@@ -110,8 +111,8 @@ class UCTNode():
             current.max_deepness = max(current.max_deepness, self.deepness)
 
     def get_tree_stats(self):
-        if not isinstance(self.parent, TreeRoot):
-            raise ValueError("Must be called on the first node of the tree")
+        assert isinstance(self.parent, TreeRoot), "Must be called on the first node of the tree"
+        self.parent.number_visits = self.number_visits
         return self.parent.get_tree_stats()
 
     def __repr__(self):
@@ -142,15 +143,17 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     
     if reuse_tree:
         next_node = previous_node.children[move]
+        nb_visits = previous_node.child_number_visits[move]
         root = TreeRoot()
         next_node.parent = root
         root.first_node = next_node
         root.deepness_correction = next_node.deepness
-        root.child_number_visits[move] = next_node.number_visits
-        del(previous_node.children)
+        root.tree_size = nb_visits
+        del previous_node.children
     else:
         next_node = mcts.create_root_uct_node(
             root_node.children[move].game_state)
+        next_node.move = nove
     
     return next_node
 
@@ -191,7 +194,6 @@ def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, loop=None, ma
 
     async def search():
         UCTNode.CPUCT = cpuct
-        root_node.parent = TreeRoot()
 
         if not root_node.is_expanded:
             await _search()
