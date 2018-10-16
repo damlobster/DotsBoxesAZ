@@ -1,6 +1,7 @@
 import logging
 logging.basicConfig(level=logging.INFO)
 
+from functools import partial
 import asyncio
 import sys
 import numpy as np
@@ -25,7 +26,7 @@ params = utils.DotDict({
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "nn_batch_size": 128,
-        "nn_batch_timeout": 0.02,
+        "nn_batch_timeout": 0.001,
         "nn_batch_builder": nn_batch_builder,
         "mcts": {
             "mcts_num_read": 1000,
@@ -103,27 +104,42 @@ def check_randomness():
         moves, _ = sp.get_games_moves()
         print(moves)
 
-def selfplay(n_games, nn):
+def selfplay(nn, games_idxs):
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    from dots_boxes.dots_boxes_game import BoxesState
+    import self_play
+    from self_play import SelfPlay
+    import utils.proxies
     game_state = BoxesState()
     sp = SelfPlay(nn, params)
-    sp.play_games(game_state, n_games, show_progress=False)
+    sp.play_games(game_state, games_idxs, show_progress=True)
+    loop.close()
     sys.stdout.flush()
-    return sp.get_training_data()
+    return sp.get_datasets(0)
 
-async def random_nn(state):
-    p = np.random.uniform(0, 1, (state.shape[0], 32))
+async def random_nn(np_array):
+    p = np.random.uniform(0, 1, (len(np_array), 32))
     s = p.sum(axis=1)
-    return (p, np.array([0]*state.shape[0]))
+    return (p, np.array([0]*len(np_array)))
+
+async def random_nn_state(state):
+    p = np.random.uniform(0, 1, (1, 32))
+    s = p.sum(axis=1)
+    return (p, np.array([0]))
 
 def generate_random_games(n_games):
+    n_games = int(n_games)
     generate_games("./data/selfplay/test.h5", 0, random_nn, int(n_games), params, n_workers=None, games_per_workers=None)
-"""    with mp.Pool(mp.cpu_count()) as pool:
-        results = [pool.apply_async(selfplay, args=(10, random_nn))
-                    for _ in range(200)]
-        data = [sample for p in results for sample in p.get()]
-        with open("./data/selfplay/selfplay0.pkl", "wb") as f:
-            pickle.dump(list(data), f)
-"""
+    return
+    hdf_file_name = "./data/selfplay/random_gen0.h5"
+    games_idxs = np.array_split(np.arange(n_games), n_games//3)
+    print(games_idxs)
+    with mp.Pool() as pool:
+        dfs = pool.map(partial(selfplay, random_nn_state), games_idxs)
+        for data, stats in dfs:
+            utils.write_to_hdf(hdf_file_name, data, stats)
 
 def train_nn(generation=None, file=None, to_idx="1e12", epochs=None):
     print("Generation is the next one for which we train the model", flush=True)

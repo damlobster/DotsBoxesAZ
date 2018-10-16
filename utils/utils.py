@@ -96,96 +96,16 @@ class HDFStoreDataset(data.Dataset):
         value = self.value[index]
         return board, visits, np.asarray([value])
 
+def write_to_hdf(hdf_file, data, stats):
+    with pd.HDFStore(hdf_file, mode="a") as store:
+        features = np.stack(data.features.values, axis=0)
+        features = pd.DataFrame(features, columns=range(features.shape[1]), 
+                                index=data.index)
+        store.append("data/features", features, format="table")
 
-def default_batch_builder(states_batch):
-    return np.concatenate(tuple(gs.get_features() for gs in states_batch))
-
-"""class AsyncBatchedProxy():
-    def __init__(self, func, batch_size, batch_builder=default_batch_builder,
-                 max_queue_size=None, loop=asyncio.get_event_loop()):
-        super(AsyncBatchedProxy, self).__init__()
-        self.func = func
-        self.batch_size = batch_size
-        self.batch_builder = batch_builder
-        self.loop = loop
-        self.queue = asyncio.Queue(maxsize = max_queue_size if max_queue_size else batch_size + 2)
-        self.not_launched = True
-
-    async def __call__(self, argument, no_batch=False):
-        if no_batch:
-            return await self.func(self.batch_builder(argument)[np.newaxis,:])
-
-        if self.not_launched:
-            self.loop.create_task(self.batch_runner())
-
-        fut = asyncio.Future()
-        await self.queue.put((argument, fut))
-        res = await fut
-        return res
-
-    async def batch_runner(self):
-        batch, futs = [], []
-        arg = True
-        while arg is not None:
-            arg, fut = await self.queue.get()
-            if arg is not None:
-                batch.append(arg)
-                futs.append(fut)
-            if len(batch) >= self.batch_size or (not arg and batch):
-                results = await self.func(self.batch_builder(batch))
-                for fut, p, v in zip(futs, *results):
-                    fut.set_result((p, v))
-
-                batch, futs = [], []
-
-
-class PipedProxy():
-    class CallerProxy():
-        def __init__(self, pipe):
-            self.pipe = pipe
-
-        async def __call__(self, *args, **kwargs):
-            if self.pipe.closed:
-                raise ConnectionError("Pipe already closed!")
-            call = functools.partial(child.send, (args, kwargs))
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, call)
-            return await loop.run_in_executor(None, child.recv)
-            
-
-    def __init__(self, func, batch_size=8):
-        self.func = func
-        self.batch_size = batch_size
-        self.parent, self.child = mp.connection.Pipe()
-        self.is_running = False
-
-    def get_caller_proxy(self):
-        async def caller_proxy(*args, **kwargs):
-
-
-
-def create_pipe_proxy(func):
-    parent, child = Pipe()
-
-    async def caller(*args, **kwargs):
-        if child.closed:
-            raise ConnectionError("Pipe already closed!")
-        call = functools.partial(child.send, (args, kwargs))
-        await asyncio.get_event_loop().run_in_executor(None, call)
-        return await asyncio.get_event_loop().run_in_executor(None, child.recv)
-    caller.close = lambda: child.close()
-
-    async def callee():
-        callee._closed = False
-        while not callee._closed:
-            args, kwargs = await asyncio.get_event_loop().run_in_executor(None, parent.recv)
-            res = await func(*args, **kwargs)
-            await asyncio.get_event_loop().run_in_executor(None, parent.send, res)
-        parent.close()
-
-    def c():
-        callee._closed = True
-    callee.close = c
-
-    return callee, caller
-"""
+        policies = np.stack(data.policy.values, axis=0)
+        policies = pd.DataFrame(policies, columns=range(policies.shape[1]), 
+                                index=data.index)
+        store.append("data/policy", policies, format="table")
+        store.append("data/value", data["value"], format="table")
+        store.append("stats", stats, format="table")

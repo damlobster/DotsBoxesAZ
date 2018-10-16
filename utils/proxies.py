@@ -36,28 +36,30 @@ class AsyncBatchedProxy():
         return res
 
     async def run(self):
-        ts, args, futs = [], [], []
-        while True:
-            try:
-                async with timeout(self.timeout) as t_out:
-                    t, a, f = await self.queue.get()
-                ts.append(t)
-                args.append(a)
-                futs.append(f)
-            except asyncio.TimeoutError as e:
-                pass
-                
-            
-            call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
-            if call_func:
-                n = min(len(ts), self.batch_size)
-                print("run batch:", n, len(ts), flush=True)
-                results = await self.func(self.batch_builder(*args[:n]))
-                for fut, res in zip(futs[:n], zip(*results)):
-                    fut.set_result(res)
+        try:
+            ts, args, futs = [], [], []
+            while True:
+                try:
+                    async with timeout(self.timeout) as t_out:
+                        t, a, f = await self.queue.get()
+                    ts.append(t)
+                    args.append(a)
+                    futs.append(f)
+                except asyncio.TimeoutError as e:
+                    pass
 
-                ts, args, futs = ts[n:], args[n:], futs[n:]
+                call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
+                if call_func:
+                    n = min(len(ts), self.batch_size)
+                    #print("run batch:", n, len(ts), flush=True)
+                    results = await self.func(self.batch_builder(*args[:n]))
+                    for fut, res in zip(futs[:n], zip(*results)):
+                        fut.set_result(res)
 
+                    ts, args, futs = ts[n:], args[n:], futs[n:]
+
+        except asyncio.CancelledError:
+            return # silently exit the worker
 
 def pipe_proxy_init():
     child, parent = mp.connection.Pipe()
@@ -84,6 +86,7 @@ class PipedProxy():
     async def run(self):
         def send(pipe, fut):
             pipe.send(fut.result())
+
         try:
             while self.my_pipes:
                 ready_list = await self.loop.run_in_executor(None, mp.connection.wait, self.my_pipes)
@@ -94,6 +97,5 @@ class PipedProxy():
                         fut.add_done_callback(partial(send, pipe))
                     except EOFError as e:
                         self.my_pipes.remove(pipe)
-        except Exception:
-            print("Exception!", flush=True)
-            raise
+        except asyncio.CancelledError:
+            return #silently exit the worker
