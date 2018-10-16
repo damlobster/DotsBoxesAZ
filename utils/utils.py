@@ -71,20 +71,30 @@ class PickleDataset(data.Dataset):
 
 
 class HDFStoreDataset(data.Dataset):
-    def __init__(self, hdf_store:pd.HDFStore, key, where=None):
+    def __init__(self, hdf_file, features_shape=None, where=None):
+        def reshape(X):            
+            if features_shape is None:
+                return X
+            else:
+                from operator import mul
+                from functools import reduce
+                assert reduce(mul, features_shape) == X.shape[1], "Cannot reshape features to: {}".format(features_shape)
+                return X.reshape((-1, *features_shape))
+
         super(HDFStoreDataset, self).__init__()
-        if query is None:
-            self.df = hdf_store[key]
-        else:
-            self.df = hdf_store.select(key, query)
-            self.df.reset_index(inplace=True)
+        with pd.HDFStore(hdf_file, "r") as hdf_store:
+            self.features = reshape(hdf_store.select("data/features", where).values.astype(np.float32))
+            self.policy = hdf_store.select("data/policy", where).values
+            self.value = hdf_store.select("data/value", where).values.astype(np.float32)
 
     def __len__(self):
-        return len(self.df.index)
+        return self.features.shape[0]
 
     def __getitem__(self, index):
-        board, visits, value = self.df.iloc[index]
-        return board, visits, np.asarray([value], dtype=np.float32)
+        board = self.features[index]
+        policy = self.policy[index]
+        value = self.value[index]
+        return board, visits, np.asarray([value])
 
 
 def default_batch_builder(states_batch):
