@@ -10,7 +10,7 @@ import multiprocessing as mp
 import numpy as np
 import pandas as pd
 
-import utils
+import utils.utils as utils
 from utils.proxies import PipedProxy, pipe_proxy_init, AsyncBatchedProxy
 import mcts
 
@@ -75,6 +75,8 @@ class SelfPlay(object):
     def get_datasets(self, generation):
         game_idxs = []
         moves_idxs = []
+        moves = []
+        players = []
         features = []
         policies = []
         values = []
@@ -83,6 +85,8 @@ class SelfPlay(object):
             for move_i, node in reversed(list(enumerate(moves_seq[:-1]))):
                 game_idxs.append(game_idx)
                 moves_idxs.append(move_i)
+                moves.append(node.move)
+                players.append(node.game_state.player)
                 features.append(node.game_state.get_features().ravel())
                 policies.append(node.child_number_visits /
                                 node.child_number_visits.sum())
@@ -91,15 +95,112 @@ class SelfPlay(object):
                 if node.game_state.player != node.game_state.next_player:
                     result = result * -1
         
-        data = {"generation": [generation]*len(game_idxs), "game_idx": game_idxs, 
-                "move_idx": moves_idxs, "features": features, 
-                "policy": policies, "value": values}
-        data_df = pd.DataFrame(data).set_index(["generation", "game_idx", "move_idx"])
+        generation = np.asarray([generation]*len(game_idxs), dtype=np.int16)
+        df = pd.DataFrame(generation, columns=['generation'])
+        games_idxs = np.asarray(game_idxs, dtype=np.int16)
+        df = df.join(pd.DataFrame(games_idxs, columns=['game_idx'], index=df.index))
+        moves_idxs = np.asarray(moves_idxs, dtype=np.int16)
+        df = df.join(pd.DataFrame(moves_idxs, columns=['move_idx'], index=df.index))
 
-        mcts_stats_df = pd.DataFrame.from_records(stats, data_df.index, columns=[
-                                                  'moves_nb', 'max_deepness', 'tree_size', 'terminal_count'])
-        return data_df, mcts_stats_df
+        moves = np.asarray(moves)
+        moves[moves==None] = -1
+        moves = moves.astype(np.int16)
+        df = df.join(pd.DataFrame(moves, columns=['move'], index=df.index))
 
+        players = np.asarray(players, dtype=np.int8)
+        df = df.join(pd.DataFrame(players, columns=['player'], index=df.index))
+
+        features = np.stack(features, axis=0)
+        df = df.join(pd.DataFrame(features, columns=list("feature_"+str(i) for i in range(features.shape[1])), index=df.index))
+
+        policies = np.stack(policies, axis=0)
+        df = df.join(pd.DataFrame(policies, columns=list("policy_"+str(i) for i in range(policies.shape[1])), index=df.index))
+
+        values = np.asarray(values)[:, np.newaxis]
+        df = df.join(pd.DataFrame(values, columns=['value'], index=df.index))
+
+        stats_df = pd.DataFrame.from_records(stats, columns=['moves_nb', 'max_deepness', 'tree_size', 'terminal_count', "q_value"], index=df.index)
+        #stats_df = stats_df.tree_size.astype(np.int64)
+        df = df.join(stats_df)
+
+        df.set_index(["generation", "game_idx", "move_idx"], inplace=True)
+
+        return df
+
+
+_env_ = None
+def _worker_init(hdf_file_name, generation, nn_class, params):
+    global _env_
+    _env_ = params
+    _env_.name = 'w%i' % mp.current_process().pid
+    _env_.hdf_file_name, _env_.generation = hdf_file_name, generation
+    _env_.nn_class =  nn_class
+
+def _worker_set_device(device):
+    import time
+    global _env_
+    _env_.nn.pytorch_device = device
+    time.sleep(0.1)
+    print("Worker {} uses device {}".format(_env_.name, device))
+
+def _worker_run(games_idxs):
+    global _env_
+    
+    import self_play
+    from dots_boxes.dots_boxes_game import BoxesState
+    import utils.utils as utils
+    from nn import NeuralNetWrapper
+    import time
+
+    tic = time.time()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    tasks = []
+
+    sp_params = _env_.self_play
+    nn = NeuralNetWrapper(_env_.nn_class(_env_), _env_)
+    nn.load_model_parameters(_env_.generation-1)
+    nn = AsyncBatchedProxy(nn, batch_size=sp_params.nn_batch_size, timeout=sp_params.nn_batch_timeout, batch_builder=sp_params.nn_batch_builder)
+    tasks.append(asyncio.ensure_future(nn.run(), loop=loop))
+
+    try:
+        sp = self_play.SelfPlay(nn, _env_)
+        loop.run_until_complete(sp.play_games(BoxesState(), games_idxs, show_progress=False))
+    except e:
+        print(e, flush=True)
+        raise e
+    finally:
+        for t in tasks:
+            t.cancel()
+        loop.run_until_complete(asyncio.sleep(0.001))
+        loop.close()
+
+    tac = time.time()
+    df = sp.get_datasets(_env_.generation)
+    toc = time.time()
+
+    print("Worker {} played {} games ({} samples) in {:.2f}s (df gen+saving={:.3f}s)".format(
+        _env_.name, len(games_idxs), len(df.index), toc-tic, toc-tac), flush=True)
+
+    return df
+
+def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_workers=None, devices=["cuda:1", "cuda:0"], games_per_workers=10):
+    nw = n_workers if n_workers else mp.cpu_count() - 1
+    gpw = games_per_workers if games_per_workers else max(1, n_games//nw)
+    games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
+    nw = min(nw, len(games_idxs))
+
+    def save_df(df):
+        utils.write_to_hdf(hdf_file_name, df)
+    def err_cb(err):
+        raise err
+    with mp.Pool(nw, initializer=_worker_init, initargs=(hdf_file_name, generation, nn_class, params)) as pool:
+        pool.map(_worker_set_device, list(devices[i%len(devices)] for i in range(nw)))
+        tasks = [pool.apply_async(_worker_run, (idxs,), callback=save_df, error_callback=err_cb) for idxs in games_idxs]
+        [t.wait() for t in tasks]
+        pool.close()
+
+"""
 _params = None
 def _selfplay_worker_init(params):
     global _params
@@ -168,3 +269,4 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
                 t.cancel()
             loop.run_until_complete(asyncio.sleep(0.001))
             loop.close()
+"""
