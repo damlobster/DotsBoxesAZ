@@ -5,8 +5,9 @@ import torch.nn.functional as F
 N_CH = 256
 
 class SimpleNN(nn.Module):
-    def __init__(self):
+    def __init__(self, params=None):
         super(SimpleNN, self).__init__()
+        self.params = params
         self.conv0 = nn.Conv2d(3, N_CH, 3, padding=1)
         self.bn0 = nn.BatchNorm2d(N_CH)
         self.conv1 = nn.Conv2d(N_CH, N_CH, 3, padding=1)
@@ -38,15 +39,18 @@ class SimpleNN(nn.Module):
         x = self.bn_fc1(F.relu(self.fc1(x)))
 
         value = torch.tanh(self.value_fc(x))
-
         policy = F.log_softmax(self.policy_fc(x), dim=1)
-
+        
         return policy, value
 
-    def save_parameters(self, filename):
-        print("Model saved to:", filename)
-        torch.save(self.state_dict(), filename)
+    def save_parameters(self, generation):
+        filename = self.params.nn.chkpts_filename
+        fn = filename.format(generation)
+        print("Model saved to:", fn)
+        torch.save(self.state_dict(), fn)
 
-    def load_parameters(self, filename):
-        print("Model loaded from:", filename)
-        self.load_state_dict(torch.load(filename))
+    def load_parameters(self, generation):
+        filename = self.params.nn.chkpts_filename
+        fn = filename.format(generation)
+        print("Model loaded from:", fn)
+        self.load_state_dict(torch.load(fn))
