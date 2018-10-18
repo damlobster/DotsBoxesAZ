@@ -70,22 +70,24 @@ class PickleDataset(data.Dataset):
         return board, visits, np.asarray([value], dtype=np.float32)
 
 
+def _reshape(X, features_shape):            
+    if features_shape is None:
+        return X
+    else:
+        from operator import mul
+        from functools import reduce
+        assert reduce(mul, features_shape) == X.shape[1], "Cannot reshape features to: {}".format(features_shape)
+        return X.reshape((-1, *features_shape))
+
 class HDFStoreDataset(data.Dataset):
     def __init__(self, hdf_file, features_shape=None, where=None):
-        def reshape(X):            
-            if features_shape is None:
-                return X
-            else:
-                from operator import mul
-                from functools import reduce
-                assert reduce(mul, features_shape) == X.shape[1], "Cannot reshape features to: {}".format(features_shape)
-                return X.reshape((-1, *features_shape))
-
         super(HDFStoreDataset, self).__init__()
         with pd.HDFStore(hdf_file, "r") as hdf_store:
-            self.features = reshape(hdf_store.select("data/features", where).values.astype(np.float32))
-            self.policy = hdf_store.select("data/policy", where).values
-            self.value = hdf_store.select("data/value", where).values.astype(np.float32)
+            df = hdf_store.select("data", where)
+            cols = df.columns
+            self.features = _reshape(df[list(c for c in cols if c.startswith("feature_"))].values.astype(np.float32), features_shape)
+            self.policy = df[list(c for c in cols if c.startswith("policy_"))].values.astype(np.float32)
+            self.value = df.value.values.astype(np.float32)
 
     def __len__(self):
         return self.features.shape[0]
@@ -94,18 +96,8 @@ class HDFStoreDataset(data.Dataset):
         board = self.features[index]
         policy = self.policy[index]
         value = self.value[index]
-        return board, visits, np.asarray([value])
+        return board, policy, np.asarray([value])
 
-def write_to_hdf(hdf_file, data, stats):
+def write_to_hdf(hdf_file, dataframe):
     with pd.HDFStore(hdf_file, mode="a") as store:
-        features = np.stack(data.features.values, axis=0)
-        features = pd.DataFrame(features, columns=range(features.shape[1]), 
-                                index=data.index)
-        store.append("data/features", features, format="table")
-
-        policies = np.stack(data.policy.values, axis=0)
-        policies = pd.DataFrame(policies, columns=range(policies.shape[1]), 
-                                index=data.index)
-        store.append("data/policy", policies, format="table")
-        store.append("data/value", data["value"], format="table")
-        store.append("stats", stats, format="table")
+        store.append("data", dataframe, format="table")

@@ -51,10 +51,14 @@ class AsyncBatchedProxy():
                 call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
                 if call_func:
                     n = min(len(ts), self.batch_size)
-                    #print("run batch:", n, len(ts), flush=True)
                     results = await self.func(self.batch_builder(*args[:n]))
-                    for fut, res in zip(futs[:n], zip(*results)):
-                        fut.set_result(res)
+                    ps, vs = results
+                    for i, fut in enumerate(futs[:n]):
+                        try:
+                            fut.set_result((ps[i], vs[i]))
+                        except:
+                            print("Exception!")
+                            raise
 
                     ts, args, futs = ts[n:], args[n:], futs[n:]
 
