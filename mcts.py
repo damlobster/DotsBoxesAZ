@@ -9,7 +9,7 @@ from game import GameState
 from utils.utils import DictWithDefault
 
 tree_stats_enabled = True
-TreeStats = namedtuple('TreeStats', ['moves_nb', 'max_deepness', 'tree_size', 'terminal_count'])
+TreeStats = namedtuple('TreeStats', ['moves_nb', 'max_deepness', 'tree_size', 'terminal_count', 'q_value'])
 
 class TreeRoot():
     def __init__(self):
@@ -25,7 +25,8 @@ class TreeRoot():
     def get_tree_stats(self):
         max_deepness = self.max_deepness - self.deepness_correction
         #tree_size = self.number_visits # sum(self.child_number_visits.values()) 
-        return TreeStats(self.deepness_correction, max_deepness, self.tree_size, self.terminal_states_count)
+        Q = self.first_node.total_value / (1 + self.first_node.number_visits)
+        return TreeStats(self.deepness_correction, max_deepness, self.tree_size, self.terminal_states_count, Q)
 
 
 
@@ -158,26 +159,8 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     return next_node
 
 
-@DeprecationWarning
-def UCT_search_sync(root_node: UCTNode, num_reads, nn, cpuct=1.0):
-    UCTNode.CPUCT = cpuct
-    root_node.parent = TreeRoot()
-    for _ in range(num_reads):
-        leaf = root_node.select_leaf()
-        if not leaf.is_terminal:
-            child_priors, value_estimate = nn(leaf.game_state)
-        else:
-            child_priors, value_estimate = np.zeros(
-                leaf.game_state.get_actions_size()), leaf.game_state.get_result()
-
-        leaf.expand(child_priors *
-                    leaf.game_state.get_valid_moves(as_indices=False))
-        leaf.backup(value_estimate)
-
-    return root_node.child_number_visits
-
-
 async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=8, dirichlet=(1.0, 0.25)):
+    import multiprocessing as mp
     async def _search():
         leaf = root_node.select_leaf()
         if not leaf.is_terminal:
