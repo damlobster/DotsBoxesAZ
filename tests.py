@@ -16,57 +16,6 @@ from dots_boxes.dots_boxes_nn import SimpleNN
 import utils.utils as utils
 from utils.proxies import AsyncBatchedProxy
 
-BoxesState.set_board_dim((3,3))
-params = utils.DotDict({
-    "game": {
-        "board_size": BoxesState.BOARD_DIM,
-    },
-    "self_play": {
-        "num_games": 1,
-        "reuse_mcts_tree": True,
-        "noise": (1.0, 0.25),  # alpha, coeff
-        "nn_batch_size": 128,
-        "nn_batch_timeout": 0.001,
-        "nn_batch_builder": nn_batch_builder,
-        "mcts": {
-            "mcts_num_read": 1000,
-            "mcts_cpuct": 1.0,
-            "temperature": {0: 1.0, 5: 1e-50},  # from 8th move we greedly take move with most visit count
-            "max_async_searches": 32,
-        }
-    },
-    "nn": {
-        "pytorch_device": "cuda:1",
-        "train_params": {
-            "nb_epochs": 50,
-            "train_split": 0.9,
-            "train_batch_size": 50,
-            "val_batch_size": 512,
-            "lr": 0.01,
-            "lr_scheduler": (200, 0.5),
-            "adam_betas": (0.9, 0.999),
-            "lambda_l2": 1e-4,
-        },
-        "resnet": {
-            "in_channels": 3,
-            "nb_channels": 256,
-            "kernel_size": 3,
-            "nb_blocks": 20
-        },
-        "policy_head": {
-            "in_channels": 256,
-            "nb_actions": BoxesState.NB_ACTIONS,
-        },
-        "value_head": {
-            "in_channels": 256,
-            "nb_actions": BoxesState.NB_ACTIONS,
-            "n_hidden": 128
-        },
-    }
-})
-
-resnet = False
-
 def play_game(generation=None):
     if generation is None:
         raise ValueError("You should specify a generation!")
@@ -114,7 +63,9 @@ def selfplay(nn, games_idxs):
     import utils.proxies
     game_state = BoxesState()
     sp = SelfPlay(nn, params)
-    sp.play_games(game_state, games_idxs, show_progress=True)
+    task = sp.play_games(game_state, games_idxs, show_progress=True)
+    loop.run_until_complete(task)
+    loop.run_until_complete(asyncio.sleep(1e-3))
     loop.close()
     sys.stdout.flush()
     return sp.get_datasets(0)
@@ -129,26 +80,30 @@ async def random_nn_state(state):
     s = p.sum(axis=1)
     return (p, np.array([0]))
 
-def generate_random_games(n_games):
+def generate_random_games(n_games, chunk_size):
     n_games = int(n_games)
-    generate_games("./data/selfplay/test.h5", 0, random_nn, int(n_games), params, n_workers=None, games_per_workers=None)
-    return
-    hdf_file_name = "./data/selfplay/random_gen0.h5"
+    chunk_size = int(chunk_size) if chunk_size else max(1, n_games//3)
+    generate_games("./data/selfplay/test.h5", 0, NeuralNetWrapper(SimpleNN(), params), int(n_games), params, n_workers=None, games_per_workers=None)
+    
+    """hdf_file_name = "./data/selfplay/random_gen0.h5"
     games_idxs = np.array_split(np.arange(n_games), n_games//3)
-    print(games_idxs)
     with mp.Pool() as pool:
         dfs = pool.map(partial(selfplay, random_nn_state), games_idxs)
-        for data, stats in dfs:
-            utils.write_to_hdf(hdf_file_name, data, stats)
+        for df in dfs:
+            utils.write_to_hdf(hdf_file_name, df)"""
 
-def train_nn(generation=None, file=None, to_idx="1e12", epochs=None):
+def toto(generation, n_games=None):
+    generation = int(generation)
+    n_games = params.self_play.num_games if n_games is None else int(n_games)
+    generate_games("./data/selfplay/test1.h5", generation, SimpleNN, n_games, params, n_workers=None, games_per_workers=10)
+
+def train_nn(generation, hdf_file, where=None, to_idx="1e12", epochs=None):
     print("Generation is the next one for which we train the model", flush=True)
-    assert generation is not None
     generation = int(generation)
     if epochs is not None:
         params.nn.train_params.nb_epochs = int(epochs)
         
-    ds = utils.PickleDataset("./data/selfplay/", file=file, to_idx=int(float(to_idx)))
+    ds = utils.HDFStoreDataset("./data/selfplay/"+hdf_file, features_shape=(3,4,4), where=where)
     model = ResNetZero(params)  if resnet else SimpleNN()
     if generation != 1:
         model.load_parameters("./data/model_chkpts/{}_{}.pt".format("resnet" if resnet else "simple", generation-1))
