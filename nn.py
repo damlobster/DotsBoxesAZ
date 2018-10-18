@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.utils.data as data
+import pandas as pd
 
 import utils
 
@@ -132,13 +133,14 @@ class NeuralNetWrapper():
     async def predict(self, X):
         loop = asyncio.get_event_loop()
         future = loop.run_in_executor(None, self.predict_sync, X)
-        return await future.result()
+        return await future
 
     async def predict_from_game(self, game_state):
         return await self.predict([game_state.get_features()])
 
     async def __call__(self, X):
-        return await self.predict(X)
+        res = await self.predict(X)
+        return res
 
     def train(self, dataset):
         params = self.params.nn.train_params
@@ -167,7 +169,7 @@ class NeuralNetWrapper():
                 z = z.requires_grad_(True).to(self.device)
 
                 p, v = self.model(boards)
-                loss_pi = self.loss_pi(p, pi)*0.0
+                loss_pi = self.loss_pi(p, pi)
                 loss_v = self.loss_v(v, z)
                 loss_reg = self.loss_reg()
                 loss = (loss_v + loss_pi + loss_reg)/len(train_data)
@@ -187,9 +189,9 @@ class NeuralNetWrapper():
                     z = z.to(self.device)
 
                     p, v = self.model(boards)
-                    loss_pi = self.loss_pi(p, pi)*0.0
+                    loss_pi = self.loss_pi(p, pi)
                     loss_v = self.loss_v(v, z)
-                    loss_reg = 0.0 #self.loss_reg()
+                    loss_reg = self.loss_reg()
                     loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
                     val_loss += loss.item()
 
@@ -210,8 +212,11 @@ class NeuralNetWrapper():
             loss_reg += self.params.nn.train_params.lambda_l2 * p.pow(2).sum()
         return loss_reg
 
-    def save_model_parameters(self, filename):
-        self.model.save_parameters(filename)
+    def save_model_parameters(self, generation=None):
+        if generation:
+            self.model.save_parameters(filename.format(generation))
+        else:
+            self.model.save_parameters(filename)
 
-    def load_model_parameters(self, filename):
-        self.model.load_parameters(filename)
+    def load_model_parameters(self, generation):
+        self.model.load_parameters(generation)
