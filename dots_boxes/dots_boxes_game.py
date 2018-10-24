@@ -9,15 +9,15 @@ from game import GameState
 class BoxesState(GameState):
     __slots__ = 'hash', 'board', 'player', 'next_player', 'boxes_to_close'
     BOARD_DIM = (3, 3)
-    FEATURES_SHAPE = (3, BOARD_DIM[0], BOARD_DIM[1])
+    FEATURES_SHAPE = (3, BOARD_DIM[0]+1, BOARD_DIM[1]+1)
     NB_ACTIONS = 2 * (BOARD_DIM[0]+1) * (BOARD_DIM[1]+1)
     NB_BOXES = BOARD_DIM[0] * BOARD_DIM[1]
 
     @staticmethod
     def set_board_dim(dims):
         BoxesState.BOARD_DIM = dims
-        BoxesState.FEATURES_SHAPE = (
-            3, BoxesState.BOARD_DIM[0], BoxesState.BOARD_DIM[1])
+        BoxesState.FEATURES_SHAPE = (3, \
+            BoxesState.BOARD_DIM[0]+1, BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_ACTIONS = 2 * \
             (BoxesState.BOARD_DIM[0]+1) * (BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_BOXES = BoxesState.BOARD_DIM[0] * BoxesState.BOARD_DIM[1]
@@ -104,6 +104,9 @@ class BoxesState(GameState):
         b += 1 << move
         self.hash = (b, self.boxes_to_close[self.next_player])
 
+    def get_hash(self):
+        return self.hash
+        
     def __hash__(self):
         return self.hash.__hash__()
 

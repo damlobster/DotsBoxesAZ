@@ -49,8 +49,8 @@ class SimpleNN(nn.Module):
         print("Model saved to:", fn)
         torch.save(self.state_dict(), fn)
 
-    def load_parameters(self, generation):
+    def load_parameters(self, generation, to_device=None):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
         print("Model loaded from:", fn)
-        self.load_state_dict(torch.load(fn))
+        self.load_state_dict(torch.load(fn, map_location=to_device))

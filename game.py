@@ -16,8 +16,17 @@ class GameState(object):
     def play(self, move):
         pass
 
+    def move_human_to_index(human):
+        pass
+
+    def move_index_to_human(index):
+        pass
+        
     def get_features(self):
         pass
 
+    def get_hash(self):
+        pass
+        
     def __hash__(self):
         pass

@@ -114,6 +114,14 @@ class ResNetZero(nn.Module):
         print("Model loaded from:", filename)
         self.load_state_dict(torch.load(filename, map_location=lambda storage, loc: storage))
 
+class AlphaZeroLoss(nn.Module):
+    def __init__(self):
+        super(AlphaZeroLoss, self).__init__()
+
+    def forward(self, p, v, pi, z):
+        loss_v = (z - v).pow(2).mean()
+        loss_pi = -(pi * p).sum(1).mean()
+        return loss_v + loss_pi, (loss_pi.item(), loss_v.item()) #loss:variable, (loss_v:float, loss_pi:float)
 
 class NeuralNetWrapper():
     def __init__(self, model, params):
@@ -142,46 +150,52 @@ class NeuralNetWrapper():
         res = await self.predict(X)
         return res
 
-    def train(self, dataset):
+    def train(self, train_dataset, val_dataset, writer, last_batch_idx):
         params = self.params.nn.train_params
         
-        split_idx = int(len(dataset)*params.train_split)
-        train_data, validation_data = data.random_split(
-            dataset, [split_idx, len(dataset)-split_idx])
         train_data = data.DataLoader(
-            train_data, params.train_batch_size, shuffle=True)
+            train_dataset, params.train_batch_size, shuffle=True)
         validation_data = data.DataLoader(
-            validation_data, params.val_batch_size)
+            val_dataset, params.val_batch_size) if val_dataset is not None else None
 
         optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=params.lr, betas=params.adam_betas)
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, *params.lr_scheduler)
+            self.model.parameters(), lr=params.lr, **params.adam_params)
+        #lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, *params.lr_scheduler)
 
+        criterion = AlphaZeroLoss()
+        batch_i = last_batch_idx + 1
         for epoch in range(params.nb_epochs):
-            lr_scheduler.step()
+            #lr_scheduler.step() #TODO use batch number
 
             self.model.train(True)
-            train_loss = 0.0
+            n_batches = len(train_data)
+            tr_loss = 0
             for boards, pi, z in train_data:
+                batch_i += 1
                 # Transfer to GPU
                 boards = boards.to(self.device)
                 pi = pi.requires_grad_(True).to(self.device)
                 z = z.requires_grad_(True).to(self.device)
 
                 p, v = self.model(boards)
-                loss_pi = self.loss_pi(p, pi)
-                loss_v = self.loss_v(v, z)
-                loss_reg = self.loss_reg()
-                loss = (loss_v + loss_pi + loss_reg)/len(train_data)
-                train_loss += loss.item()
-                
+                loss, (loss_pi, loss_v) = criterion(p, v, pi, z)
+                loss = loss/n_batches
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                loss_v, loss_pi = loss_v/n_batches, loss_pi/n_batches
+                tr_loss += loss_pi + loss_v
+                # write scalar to tensorboard
+                writer.add_scalar('data/loss/train/pi', loss_pi, batch_i) #, walltime=batch_i)
+                writer.add_scalar('data/loss/train/v', loss_v, batch_i)
+                writer.add_scalar('data/loss/train/total', loss_pi + loss_v, batch_i)
+                writer.add_scalar("data/lr", params.lr, batch_i)
             
             val_loss = 0.0
-            if params.train_split != 1.0:
+            if val_dataset:
                 self.model.train(False)
+                loss_pi, loss_v = 0.0, 0.0
                 for boards, pi, z in validation_data:
                     # Transfer to GPU
                     boards = boards.to(self.device)
@@ -189,28 +203,18 @@ class NeuralNetWrapper():
                     z = z.to(self.device)
 
                     p, v = self.model(boards)
-                    loss_pi = self.loss_pi(p, pi)
-                    loss_v = self.loss_v(v, z)
-                    loss_reg = self.loss_reg()
-                    loss = (loss_v + loss_pi + loss_reg) / len(validation_data)
-                    val_loss += loss.item()
+                    loss, (loss_pi, loss_v) = criterion(p, v, pi, z)
+                    loss_v, loss_pi = loss_v/n_batches, loss_pi/n_batches
+                loss = loss.item()
+                val_loss += loss
+                writer.add_scalar('data/loss/val/pi', loss_pi, batch_i)
+                writer.add_scalar('data/loss/val/v', loss_v, batch_i)
+                writer.add_scalar('data/loss/val/total', loss, batch_i)
 
             print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
-                epoch+1, train_loss, val_loss,))
-
-    def loss_pi(self, p, pi):
-        loss_pi = -(pi * p).sum(1).mean()
-        return loss_pi
-
-    def loss_v(self, v, z):
-        loss_v = (z - v).pow(2).mean()
-        return loss_v
-
-    def loss_reg(self):
-        loss_reg = torch.tensor(0.0, dtype=torch.float, device=self.device)
-        for p in self.model.parameters():
-            loss_reg += self.params.nn.train_params.lambda_l2 * p.pow(2).sum()
-        return loss_reg
+                epoch, tr_loss, val_loss,), flush=True)
+        
+        return batch_i
 
     def save_model_parameters(self, generation=None):
         if generation:
@@ -218,5 +222,5 @@ class NeuralNetWrapper():
         else:
             self.model.save_parameters(filename)
 
-    def load_model_parameters(self, generation):
-        self.model.load_parameters(generation)
+    def load_model_parameters(self, generation, to_device=None):
+        self.model.load_parameters(generation, to_device=to_device)

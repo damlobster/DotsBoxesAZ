@@ -80,14 +80,16 @@ def _reshape(X, features_shape):
         return X.reshape((-1, *features_shape))
 
 class HDFStoreDataset(data.Dataset):
-    def __init__(self, hdf_file, features_shape=None, where=None):
+    def __init__(self, hdf_file, key, train, features_shape=None, where=None, max_samples=500000):
         super(HDFStoreDataset, self).__init__()
         with pd.HDFStore(hdf_file, "r") as hdf_store:
-            df = hdf_store.select("data", where)
+            df = hdf_store.select(key, where)
+            df.sort_index(ascending=False, inplace=True)
+            df = df[:max_samples][df.training == (1 if train else -1)]
             cols = df.columns
-            self.features = _reshape(df[list(c for c in cols if c.startswith("feature_"))].values.astype(np.float32), features_shape)
-            self.policy = df[list(c for c in cols if c.startswith("policy_"))].values.astype(np.float32)
-            self.value = df.value.values.astype(np.float32)
+            self.features = _reshape(df[list(c for c in cols if c.startswith("x_"))].values.astype(np.float32), features_shape)
+            self.policy = df[list(c for c in cols if c.startswith("pi_"))].values.astype(np.float32)
+            self.value = df.z.values.astype(np.float32)
 
     def __len__(self):
         return self.features.shape[0]
@@ -98,6 +100,9 @@ class HDFStoreDataset(data.Dataset):
         value = self.value[index]
         return board, policy, np.asarray([value])
 
-def write_to_hdf(hdf_file, dataframe):
+def write_to_hdf(hdf_file, key, dataframe):
     with pd.HDFStore(hdf_file, mode="a") as store:
-        store.append("data", dataframe, format="table")
+        store.append(key, dataframe, format="table")
+
+def get_cuda_devices_list():
+    return list(map(lambda id: "cuda:"+str(id), range(torch.cuda.device_count())))

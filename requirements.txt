@@ -1,0 +1,4 @@
+conda install numpy pandas pytables scikit-learn tensorboard=1.7 async-timeout
+conda install -c conda-forge tensorboardX
+conda install pytorch torchvision -c pytorch
+pip install pylru
