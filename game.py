@@ -1,6 +1,10 @@
 class GameState(object):
     __slots__ = []
 
+    @staticmethod
+    def init_static_fields(*args, **kwargs):
+        pass
+
     def get_actions_size(self):
         pass
 

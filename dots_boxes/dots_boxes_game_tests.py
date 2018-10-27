@@ -6,7 +6,7 @@ from dots_boxes.dots_boxes_game import BoxesState, moves_to_string
 
 class BoxesStateTest(unittest.TestCase):
     def setUp(self):
-        BoxesState.set_board_dim((3, 3))
+        BoxesState.init_static_fields(dims=(3, 3))
 
     def test_hash(self):
         state = BoxesState()

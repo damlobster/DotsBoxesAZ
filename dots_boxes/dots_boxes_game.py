@@ -14,7 +14,7 @@ class BoxesState(GameState):
     NB_BOXES = BOARD_DIM[0] * BOARD_DIM[1]
 
     @staticmethod
-    def set_board_dim(dims):
+    def init_static_fields(dims):
         BoxesState.BOARD_DIM = dims
         BoxesState.FEATURES_SHAPE = (3, \
             BoxesState.BOARD_DIM[0]+1, BoxesState.BOARD_DIM[1]+1)
@@ -178,7 +178,7 @@ def moves_to_string(moves, visits_counts=None):
                     count = 0 if np.isnan(v) else int(math.floor(10*v))
                     s += " {} +".format(count if count != 0 else " ")
 
-        strings.append(s)
+        strings.append(s.ljust(30))
         s = ''
         if(l < lines-1):
             for c in range(cols):
@@ -194,5 +194,5 @@ def moves_to_string(moves, visits_counts=None):
                         v = vc[np.ravel_multi_index((1, l, c), b.shape)]
                         count = 0 if np.isnan(v) else int(math.floor(10*v))
                         s += "{}   ".format(count if count != 0 else " ")
-        strings.append(s)
+        strings.append(s.ljust(30))
     return "\n".join(strings)
