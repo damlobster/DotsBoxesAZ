@@ -1,9 +1,4 @@
-import asyncio
-import multiprocessing as mp
-import copy
 import numpy as np
-import os
-import pickle
 import torch
 from torch.utils import data
 import pandas as pd
@@ -44,30 +39,6 @@ class DictWithDefault(dict):
     def __missing__(self, key):
         res = self[key] = self.lmbda(key)
         return res
-
-class PickleDataset(data.Dataset):
-    def __init__(self, data_directory, file=None, from_idx=0, to_idx=int(1e12)):
-        self.data = []
-        files = sorted(os.listdir(data_directory), reverse=True)
-        for fn in files:
-            if file is None or file == fn:
-                with open(data_directory+fn, "rb") as f:
-                    self.data.extend([sample for sample in pickle.load(f)])
-                print("selfplay samples loaded from: " + fn)
-                if len(self.data) > to_idx:
-                    break
-        self.data = self.data[from_idx:to_idx]
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, index):
-        'Generates one sample of data'
-        # Select sample
-        board, visits, value = self.data[index]
-
-        # Load data and get label
-        return board, visits, np.asarray([value], dtype=np.float32)
 
 
 def _reshape(X, features_shape):            
