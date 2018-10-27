@@ -2,6 +2,7 @@ import asyncio
 import collections
 from functools import partial
 import math
+import time
 import numpy as np
 from collections import namedtuple
 
@@ -157,7 +158,7 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     return next_node
 
 
-async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=8, dirichlet=(1.0, 0.25)):
+async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=64, dirichlet=(0.0, None), time_limit=None):
     import multiprocessing as mp
     async def _search():
         leaf = root_node.select_leaf()
@@ -170,6 +171,10 @@ async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pen
         leaf.expand(child_priors *
                     leaf.game_state.get_valid_moves(as_indices=False))
         leaf.backup(value_estimate)
+
+    end_time = time.time() + 120 # by default 2 minutes time limit
+    if time_limit:
+        end_time = time.time() + time_limit
 
     UCTNode.CPUCT = cpuct
 
@@ -185,15 +190,19 @@ async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pen
     else:
         probs = np.zeros(len(root_node.child_priors))
 
-    valid_actions = root_node.game_state.get_valid_moves()
-    valid_actions[valid_actions == 0] = 1e-60
-    noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
-    noise *= root_node.game_state.get_valid_moves()
+    if alpha > 0:
+        valid_actions = root_node.game_state.get_valid_moves()
+        valid_actions[valid_actions == 0] = 1e-60
+        noise = np.random.dirichlet(valid_actions*alpha, 1).ravel()
+        noise *= root_node.game_state.get_valid_moves()
+    else:
+        noise = 0.0
     root_node.child_priors = (1-coeff)*probs + coeff*noise
 
     max_pend = min(max_pending_evals, len(root_node.game_state.get_valid_moves()))
     pending = set()
     for i in range(num_reads):
+        if time.time() > end_time: break
         if len(pending) >= max_pend:
             _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             max_pend = max_pending_evals
