@@ -80,8 +80,11 @@ class SelfPlay(object):
         policies = []
         values = []
         stats = []
-        for game_idx, moves_seq, result in self.played_games:
-            for move_i, node in reversed(list(enumerate(moves_seq[:-1]))):
+        for game_idx, moves_seq, z in self.played_games:
+            for move_i, node in reversed(list(enumerate(moves_seq))): #moves_seq[:-1] #! keep last move in training data
+                if node.game_state.player != node.game_state.next_player:
+                    # flip sign of z if player has changed
+                    z = -z
                 game_idxs.append(game_idx)
                 moves_idxs.append(move_i)
                 moves.append(node.move)
@@ -89,10 +92,8 @@ class SelfPlay(object):
                 features.append(node.game_state.get_features().ravel())
                 policies.append(node.child_number_visits /
                                 node.child_number_visits.sum())
-                values.append(result)
+                values.append(z)
                 stats.append(node.get_tree_stats())
-                if node.game_state.player != node.game_state.next_player:
-                    result = result * -1
         
         generation = np.asarray([generation]*len(game_idxs), dtype=np.int16)
         df = pd.DataFrame(generation, columns=['generation'])
@@ -212,103 +213,3 @@ def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_worke
         tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=err_cb) for idxs in games_idxs]
         [t.wait() for t in tasks]
         pool.map(_worker_teardown, range(nw))
-
-"""
-def selfplay(generation):
-    import configuration
-    import time
-    params = configuration.params
-
-    tick = time.time()
-    print("*"*70)
-    print("Selfplay start for generation {} ...".format(generation))
-    print("Model used:", params.nn.model_class)
-    generate_games(params.hdf_file, generation, params.nn.model_class, params.self_play.num_games, params, n_workers=None, games_per_workers=10)
-    print("Selfplay finished !!! Generation of {} games took {} sec.".format(params.self_play.num_games, time.time()-tick))
-
-def main():
-    import sys
-    arg = sys.argv
-    print(arg)
-    assert len(arg) == 2
-    generation = int(arg[1])
-    selfplay(generation)
-
-if __name__ == '__main__':
-    mp.set_start_method('spawn')
-    main()
-"""
-
-"""
-_params = None
-def _selfplay_worker_init(params, hdf_lock):
-    global _params
-    _params = params
-    _params.hdf_lock = hdf_lock
-    pipe_proxy_init()
-
-def _selfplay_worker(generation, games_idxs):
-    import self_play
-    from dots_boxes.dots_boxes_game import BoxesState
-    import utils.proxies
-    print("spw 1", flush=True) #!!!!
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    print("spw 2", flush=True) #!!!!
-    sp = self_play.SelfPlay(utils.proxies.pipe_proxy, _params)
-    print("spw 3", flush=True) #!!!!
-    loop.run_until_complete(sp.play_games(BoxesState(), games_idxs, show_progress=True))
-    print("spw 4", flush=True) #!!!!
-    loop.close()
-
-    df = sp.get_datasets(generation)
-    df["training"] = np.zeros(len(df.index), dtype=np.int8)
-    with _params.hdf_lock:
-        write_to_hdf(_params.hdf_file_name, "fresh", df)
-
-
-def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=None, games_per_workers=None):
-    print(params)
-    from nn import NeuralNetWrapper
-    params.hdf_file_name = hdf_file_name
-    def err_cb(err):
-        raise err
-    
-    print("gg 1", flush=True) #!!!!
-    nw = n_workers if n_workers else mp.cpu_count() - 1
-    gpw = games_per_workers if games_per_workers else max(1, n_games//nw)
-    games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    tasks = []
-    print("gg 2", flush=True) #!!!!
-    sp_params = params.self_play
-    nn = NeuralNetWrapper(params.nn.model_class(params), params)
-    if generation > 0:
-        nn.load_model_parameters(generation-1)
-    nn = AsyncBatchedProxy(nn, batch_size=sp_params.nn_batch_size, timeout=sp_params.nn_batch_timeout, batch_builder=sp_params.nn_batch_builder)
-    tasks.append(asyncio.ensure_future(nn.run(), loop=loop))
-    print("gg 3", flush=True) #!!!!
-    lock = mp.Lock()
-    with mp.Pool(nw, initializer=_selfplay_worker_init, initargs=(params,lock,)) as pool:
-        nn_worker = PipedProxy(nn, loop, pool)
-        tasks.append(asyncio.ensure_future(nn_worker.run(), loop=loop))
-        print("gg 4", flush=True) #!!!!
-        try:
-            for idxs in games_idxs:
-                pool.apply_async(_selfplay_worker, args=(generation, list(idxs)), error_callback=err_cb)
-            print("gg 5", flush=True) #!!!!             
-            pool.close()
-            workers_task = loop.run_in_executor(None, pool.join)
-            loop.run_until_complete(asyncio.gather(workers_task))
-            print("gg 6", flush=True) #!!!!
-        except Exception:
-            pool.terminate()
-            raise
-        finally:
-            for t in tasks:
-                t.cancel()
-            loop.run_until_complete(asyncio.sleep(0.001))
-            loop.close()
-"""
