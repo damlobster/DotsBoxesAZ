@@ -36,7 +36,6 @@ def train_nn(generation, where, last_batch_idx):
     import numpy as np
     import pandas as pd
     import time
-    from tensorboardX import SummaryWriter
     from nn import NeuralNetWrapper
     import utils.utils as utils
 
@@ -66,16 +65,8 @@ def train_nn(generation, where, last_batch_idx):
         model.load_parameters(generation-1)
     wrapper = NeuralNetWrapper(model, params)
 
-    writer = SummaryWriter(params.tensorboard_log)
-    last_batch_idx = wrapper.train(train_ds, val_ds, writer, last_batch_idx)
-    writer.close()
+    last_batch_idx = wrapper.train(train_ds, val_ds, last_batch_idx)
     model.save_parameters(generation)
-
-    # free memory ?  
-    #del model
-    #del wrapper
-    #del train_ds
-    #del val_ds
 
     print("Training finished in {} sec.".format(time.time()-tick))
     return last_batch_idx
