@@ -1,4 +1,3 @@
-import Optimizer
 import asyncio
 import numpy as np
 import torch
@@ -158,8 +157,7 @@ class NeuralNetWrapper():
     def train(self, train_dataset, val_dataset, last_batch_idx):
         params = self.params.nn.train_params
         
-        train_log = SummaryWriter(params.tensorboard_log+"/train")
-        eval_log = SummaryWriter(params.tensorboard_log+"/eval")
+        writer = SummaryWriter(self.params.tensorboard_log)
 
         train_data = data.DataLoader(
             train_dataset, params.train_batch_size, shuffle=True)
@@ -183,7 +181,7 @@ class NeuralNetWrapper():
             self.model.train(True)
             tr_loss = 0
             for boards, pi, z in train_data:
-                scheduler.batch_step()
+                lr_scheduler.batch_step()
                 batch_i += 1
                 # Transfer to GPU
                 boards = boards.to(self.device)
@@ -200,10 +198,8 @@ class NeuralNetWrapper():
                 loss_v, loss_pi = loss_v, loss_pi
                 tr_loss += loss_pi + loss_v
                 # write scalars to tensorboard
-                train_log.add_scalar('loss/pi', loss_pi, batch_i) #, walltime=batch_i)
-                train_log.add_scalar('loss/v', loss_v, batch_i)
-                train_log.add_scalar('loss/total', loss_pi + loss_v, batch_i)
-                train_log.add_scalar("lr", params.lr, batch_i)
+                writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i) #, walltime=batch_i)
+                writer.add_scalar("lr", lr_scheduler.get_lr()[0], batch_i)
             
             val_loss = 0.0
             if val_dataset:
@@ -225,17 +221,13 @@ class NeuralNetWrapper():
                 loss_v /= n_batches
                 loss_pi /= n_batches
                 val_loss = loss_v + loss_pi
-                eval_log.add_scalar('loss/pi', loss_pi, batch_i)
-                eval_log.add_scalar('loss/v', loss_v, batch_i)
-                eval_log.add_scalar('loss/total', val_loss, batch_i)
+                writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i) #, walltime=batch_i)
 
             print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
                 epoch, tr_loss/len(train_data), val_loss), flush=True)
 
-        train_log.export_scalars_to_json(params.tensorboard_log+"train_{}.json".format(last_batch_idx))
-        train_log.close()
-        train_log.export_scalars_to_json(params.tensorboard_log+"eval_{}.json".format(last_batch_idx))
-        eval_log.close()
+        #writer.export_scalars_to_json(self.params.tensorboard_log+"log_{}.json".format(last_batch_idx))
+        writer.close()
 
         return batch_i
 
@@ -316,7 +308,7 @@ class CyclicLR(object):
                  step_size=2000, mode='triangular', gamma=1.,
                  scale_fn=None, scale_mode='cycle', last_batch_iteration=-1):
 
-        if not isinstance(optimizer, Optimizer):
+        if not isinstance(optimizer, torch.optim.Optimizer):
             raise TypeError('{} is not an Optimizer'.format(
                 type(optimizer).__name__))
         self.optimizer = optimizer
