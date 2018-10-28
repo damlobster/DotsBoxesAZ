@@ -90,8 +90,8 @@ class SelfPlay(object):
                 moves.append(node.move)
                 players.append(node.game_state.player)
                 features.append(node.game_state.get_features().ravel())
-                policies.append(node.child_number_visits /
-                                node.child_number_visits.sum())
+                vs = node.child_number_visits.sum()
+                policies.append(node.child_number_visits / (vs if vs > 0.0 else 1.0))
                 values.append(z)
                 stats.append(node.get_tree_stats())
         
