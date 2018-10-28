@@ -1,5 +1,6 @@
 import logging
 logging.basicConfig(level=logging.INFO)
+from functools import partial
 
 from utils.utils import get_cuda_devices_list, DotDict
 from dots_boxes.dots_boxes_game import BoxesState, nn_batch_builder
@@ -7,19 +8,17 @@ from dots_boxes.dots_boxes_nn import SimpleNN
 from nn import ResNetZero
 
 BoxesState.init_static_fields(dims=(3, 3))
-params = simple33
-
 
 simple33 = DotDict({
     "data_root": "data/simple2710",
     "hdf_file": "data/simple2710/sp_data.hdf",
-    "train_log": "data/tboard/simple2710",
+    "tensorboard_log": "./data/tboard/simple2710",
     "game": {
         "clazz": BoxesState,
-        "init": lambda: BoxesState.init_static_fields((3,3)),
+        "init": partial(BoxesState.init_static_fields, ((3,3),)),
     },
     "self_play": {
-        "n_workers": 9,
+        "n_workers": 11,
         "num_games": 1000,
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
@@ -29,19 +28,19 @@ simple33 = DotDict({
         "pytorch_devices": ["cuda:1", "cuda:0"], #get_cuda_devices_list(),
         "mcts": {
             "mcts_num_read": 800,
-            "mcts_cpuct": 1.0,
-            "temperature": {0: 1.0, 5: 1e-50},  # from 8th move we greedly take move with most visit count
+            "mcts_cpuct": 2.0,
+            "temperature": {0: 1.0, 6: 1e-50},  # from 8th move we greedly take move with most visit count
             "max_async_searches": 64,
         }
     },
     "nn": {
         "train_params": {
-            "nb_epochs": 50,
+            "nb_epochs": 3,
             "train_split": 0.9,
             "train_batch_size": 512,
             "val_batch_size": 1024,
-            "lr": 0.001,
-            "lr_scheduler": {"max_lr_factor": 8, "step_size": 400},
+            "lr": 0.0005,
+            "lr_scheduler": {"max_lr_factor": 10, "step_size": 400},
             "adam_params": {
                 "betas":(0.9, 0.999),
                 "weight_decay":1e-5,
@@ -130,3 +129,5 @@ resnet20 = DotDict({
         }
     }
 })
+
+params = simple33
