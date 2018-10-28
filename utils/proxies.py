@@ -16,7 +16,7 @@ def default_batch_builder(states_batch):
 class AsyncBatchedProxy():
     def __init__(self, func, batch_size, timeout=None, batch_builder=None,
                  max_queue_size=None, loop=asyncio.get_event_loop(), 
-                 cache_size=200000, cache_hash=lambda args: args[0].get_hash()):
+                 cache_size=400000, cache_hash=lambda args: args[0].get_hash()):
         super(AsyncBatchedProxy, self).__init__()
         self.func = func
         self.cache = pylru.lrucache(cache_size)
