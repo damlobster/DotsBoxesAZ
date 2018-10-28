@@ -41,7 +41,7 @@ def train_nn(generation, where, last_batch_idx):
 
     tick = time.time()
     print("-"*70)
-    print("Train neural net for generation {} ...".format(generation))
+    print("Train neural net for generation {} (where={})".format(generation, where))
 
     # copy new training data to current dataframe (key=data)
     with pd.HDFStore(params.hdf_file, mode="a") as store:
@@ -79,7 +79,8 @@ def learn_to_play(from_generation, to_generation, last_batch_idx, start_train=Fa
         else:
             start_train = False
 
-        where = "generation>={}".format(from_generation//2)
+        window_start = 0 if from_generation <= 3 else (from_generation - 3)//2
+        where = "generation>={}".format(window_start)
         last_batch_idx = _launch_in_process(train_nn, from_generation, where, last_batch_idx)
         print("Last training batch idx= {}".format(last_batch_idx), flush=True)
         from_generation += 1
