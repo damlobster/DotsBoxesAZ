@@ -33,14 +33,20 @@ simple33 = DotDict({
             "max_async_searches": 64,
         }
     },
+    "elo":{
+        "hdf_file": "data/simple2710/elo_data.hdf",
+        "n_games": 10,
+        "n_workers": 10,
+        "games_per_workers":1
+    },
     "nn": {
         "train_params": {
-            "nb_epochs": 3,
+            "nb_epochs": 9,
             "train_split": 0.9,
             "train_batch_size": 512,
             "val_batch_size": 1024,
-            "lr": 0.0005,
-            "lr_scheduler": {"max_lr_factor": 10, "step_size": 400},
+            "lr": 1e-4,
+            "lr_scheduler": {"max_lr_factor": 10, "step_size": 2000},
             "adam_params": {
                 "betas":(0.9, 0.999),
                 "weight_decay":1e-5,

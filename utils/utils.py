@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch.utils import data
 import pandas as pd
+import math
 
 
 class DotDict(dict):
@@ -75,5 +76,35 @@ def write_to_hdf(hdf_file, key, dataframe):
     with pd.HDFStore(hdf_file, mode="a") as store:
         store.append(key, dataframe, format="table")
 
+def read_from_hdf(hdf_file, key, where):
+    return pd.read_hdf(hdf_file, key, where=where)
+
 def get_cuda_devices_list():
     return list(map(lambda id: "cuda:"+str(id), range(torch.cuda.device_count())))
+
+
+def elo_rating(elo0, elo1, winner, K=30):
+    def elo_winning_prob(rating1, rating2):
+        return 1.0 / (1 + 1.0 * math.pow(10, (rating1 - rating2) / 400))
+
+    p1 = elo_winning_prob(elo0, elo1)
+    p0 = elo_winning_prob(elo1, elo0)
+
+    if winner == 0:
+        elo0 = elo0 + K * (1 - p0)
+        elo1 = elo1 + K * (0 - p1)
+    else:
+        elo0 = elo0 + K * (0 - p0)
+        elo1 = elo1 + K * (1 - p1)
+
+    return elo0, elo1
+
+def elo_rating2(elo0, elo1, n0, n1, K=30):
+    def elo_winning_prob(rating1, rating2):
+        return 1.0 / (1 + 1.0 * math.pow(10, (rating1 - rating2) / 400))
+    p1 = elo_winning_prob(elo0, elo1)
+    p0 = 1 - p1
+    elo0 = elo0 + K * (n0*p1 - n1*p0)
+    elo1 = elo1 + K * (n1*p0 - n0*p1)
+
+    return elo0, elo1

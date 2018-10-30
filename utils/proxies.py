@@ -12,7 +12,6 @@ import pylru
 def default_batch_builder(states_batch):
     return np.concatenate(tuple(gs[0].get_features() for gs in states_batch))[np.newaxis, :]
 
-
 class AsyncBatchedProxy():
     def __init__(self, func, batch_size, timeout=None, batch_builder=None,
                  max_queue_size=None, loop=asyncio.get_event_loop(), 
@@ -30,7 +29,7 @@ class AsyncBatchedProxy():
             maxsize=max_queue_size if max_queue_size else 2*batch_size)
 
     async def __call__(self, *args):
-        arg_hash = self.cache.cache_hash(args)
+        arg_hash = (self.func, self.cache.cache_hash(args))
         if arg_hash in self.cache:
             return self.cache[arg_hash]
         fut = asyncio.Future()
