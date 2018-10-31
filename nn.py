@@ -170,18 +170,18 @@ class NeuralNetWrapper():
         lr = params.lr
         optimizer = torch.optim.Adam(
             self.model.parameters(), lr=lr, **params.adam_params)
-        lr_scheduler = CyclicLR(optimizer,
+        """lr_scheduler = CyclicLR(optimizer,
                                 base_lr=lr,
                                 max_lr=lr*params.lr_scheduler.max_lr_factor,
                                 step_size=params.lr_scheduler.step_size,
-                                last_batch_iteration=batch_i)
+                                last_batch_iteration=batch_i)"""
 
         for epoch in range(params.nb_epochs):
 
             self.model.train(True)
             tr_loss = 0
             for boards, pi, z in train_data:
-                lr_scheduler.batch_step()
+                """lr_scheduler.batch_step()"""
                 batch_i += 1
                 # Transfer to GPU
                 boards = boards.to(self.device)
@@ -199,7 +199,7 @@ class NeuralNetWrapper():
                 tr_loss += loss_pi + loss_v
                 # write scalars to tensorboard
                 writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i) #, walltime=batch_i)
-                writer.add_scalar("lr", lr_scheduler.get_lr()[0], batch_i)
+                writer.add_scalar("lr", lr, batch_i) #lr_scheduler.get_lr()[0], batch_i)
             
             val_loss = 0.0
             if val_dataset:
