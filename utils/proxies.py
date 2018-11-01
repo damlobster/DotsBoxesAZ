@@ -13,8 +13,7 @@ def default_batch_builder(states_batch):
     return np.concatenate(tuple(gs[0].get_features() for gs in states_batch))[np.newaxis, :]
 
 class AsyncBatchedProxy():
-    def __init__(self, func, batch_size, timeout=None, batch_builder=None,
-                 max_queue_size=None, loop=asyncio.get_event_loop(), 
+    def __init__(self, func, batch_size, timeout=None, batch_builder=None, max_queue_size=None,
                  cache_size=400000, cache_hash=lambda args: args[0].get_hash()):
         super(AsyncBatchedProxy, self).__init__()
         self.func = func
@@ -24,7 +23,6 @@ class AsyncBatchedProxy():
         self.timeout = timeout
         self.time_first_in = None
         self.batch_builder = batch_builder
-        self.loop = loop
         self.queue = asyncio.Queue(
             maxsize=max_queue_size if max_queue_size else 2*batch_size)
 
@@ -35,7 +33,6 @@ class AsyncBatchedProxy():
         fut = asyncio.Future()
         await self.queue.put((time.time(), args, fut))
         res = await fut
-        
         self.cache[arg_hash] = res
         return res
 
@@ -55,6 +52,7 @@ class AsyncBatchedProxy():
                 call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
                 if call_func:
                     n = min(len(ts), self.batch_size)
+                    #print(n, flush=True)
                     results = await self.func(self.batch_builder(*args[:n]))
                     ps, vs = results
                     for i, fut in enumerate(futs[:n]):

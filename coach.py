@@ -1,11 +1,12 @@
 import logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
 import argparse
 import os
 import torch.multiprocessing as mp
+from tensorboardX import SummaryWriter
 from functools import partial
-
 import configuration
 params = configuration.params
 
@@ -17,11 +18,10 @@ def _launch_in_process(func, *args):
         res = pool.starmap(func, [args])
         return res[0]
 
-def selfplay(generation):
-    import configuration
+def selfplay(params, generation):
+    #import configuration
     import time
     from self_play import generate_games
-    params = configuration.params
 
     tick = time.time()
     print("*"*70)
@@ -29,11 +29,11 @@ def selfplay(generation):
     print("Model used:", params.nn.model_class)
     generate_games(params.hdf_file, generation, params.nn.model_class, 
                    params.self_play.num_games, params, 
-                   n_workers=params.self_play.n_workers, games_per_workers=10)
+                   n_workers=params.self_play.n_workers, games_per_workers=params.self_play.games_per_workers)
     print("Selfplay finished !!! Generation of {} games took {} sec.".format(params.self_play.num_games, time.time()-tick))
 
 
-def train_nn(generation, where, last_batch_idx):
+def train_nn(params, generation, where, writer, last_batch_idx):
     import numpy as np
     import pandas as pd
     import time
@@ -66,42 +66,62 @@ def train_nn(generation, where, last_batch_idx):
         model.load_parameters(generation-1)
     wrapper = NeuralNetWrapper(model, params)
 
-    last_batch_idx = wrapper.train(train_ds, val_ds, last_batch_idx)
+    last_batch_idx = wrapper.train(train_ds, val_ds, writer, last_batch_idx)
     model.save_parameters(generation)
 
-    print("Training finished in {} sec.".format(time.time()-tick))
+    print("Training finished in {} sec. (batch_idx={})".format(time.time()-tick, last_batch_idx))
     return last_batch_idx
 
 
-def compute_elo(params, from_generation, to_generation, last_elo):
+def compute_elo(elo_params, player0, player1):
     import time
-    from self_play import compute_elo
+    from self_play import compute_elo as elo
+
+    params0, gen0, elo0 = player0
+    params1, gen1, elo1 = player1
 
     tick = time.time()
     print("*"*70)
-    print("Elo rating start for generations {} vs {} ...".format(from_generation, to_generation))
-    print("Model used:", params.nn.model_class)
-    compute_elo(params.elo.hdf_file, [params, params], [from_generation, to_generation], (last_elo, last_elo), params.elo.n_games, 
-                n_workers=params.self_play.n_workers, games_per_workers=params.elo.games_per_workers)
-    print("Elo rating finished !!! Generation of {} games took {} sec.".format(params.elo.n_games, time.time()-tick))
+    print("Computation of Elo ratings")
+    print("Player0: model={}, generation={}, elo={}".format(params0.nn.model_class.__name__, gen0, elo0))
+    print("Player1: model={}, generation={}, elo={}".format(params1.nn.model_class.__name__, gen1, elo1))
+    elo0, elo1 = elo(elo_params.hdf_file, [params0, params1], [gen0, gen1], (elo0, elo1), elo_params.n_games, 
+                n_workers=params1.self_play.n_workers, games_per_workers=elo_params.games_per_workers)
+    print("Elo ratings computation finished in {} sec.!".format(time.time()-tick))
+    return elo0, elo1
 
-def learn_to_play(from_generation, to_generation, last_batch_idx, last_model_elo=1200, start_train=False):
+def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_model_elo=1200, start_train=False):
     while from_generation <= to_generation:
         if not start_train:
-            selfplay(from_generation)
+            selfplay(params, from_generation)
         start_train = False
 
+        writer = SummaryWriter(params.tensorboard_log)
         window_start = 0 if from_generation <= 3 else (from_generation - 3)//2
         where = "generation>={}".format(window_start)
-        last_batch_idx = _launch_in_process(train_nn, from_generation, where, last_batch_idx)
+        last_batch_idx = train_nn(params, from_generation, where, writer, last_batch_idx)
         print("Last training batch idx= {}".format(last_batch_idx), flush=True)
 
         if from_generation > 0:
-            compute_elo(params.elo.hdf_file, params, from_generation, (last_model_elo, last_model_elo), 
-                n_games=params.elo.n_games, n_workers=params.elo.n_workers)
+            player0 = (params, from_generation-1, last_model_elo)
+            player1 = (params, from_generation, last_model_elo)
+            _, last_model_elo = compute_elo(params.elo, player0, player1)
+            writer.add_scalar('elo', last_model_elo, last_batch_idx)
 
+        writer.close()
         from_generation += 1
 
+def main(parser):
+    global params
+    if args.params:
+        params = eval(args.params)
+    else:
+        params = configuration.params
+
+    if args.call:
+        eval(args.call)
+    else:
+        learn_to_play(params, args.from_gen, args.to_gen, args.batch_idx, args.elo, args.start_train)
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
@@ -109,23 +129,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Launch selfplay/train/elo loop')
     parser.add_argument('from_gen', type=int, help='start from generation nb')
     parser.add_argument('to_gen', type=int, help='stop at from generation nb')
-    parser.add_argument('-b', '--batch_idx', dest='batch_idx', type=int, default=None, help='for tensorboard: batch idx')
+    parser.add_argument('-b', '--batch_idx', dest='batch_idx', type=int, default=0, help='for tensorboard: batch idx')
     parser.add_argument('-t', '--start_train', dest='start_train', action="store_true", default=False, help='if set, start with training')
-    parser.add_argument('-e', '--elo', dest='elo', type=int, default=None, help='Elo of player from_generation')
-    parser.add_argument('-c', '--call', dest='call', default=None, help='run just on function')
+    parser.add_argument('-e', '--elo', dest='elo', type=int, default=1200, help='Elo of last generation player')
+    parser.add_argument('-c', '--call', dest='call', default=None, help='call a function')
+    parser.add_argument('-p', '--params', dest='params', default='configuration.params', help='parameters dotdict to use, must be a global in configuration.py file')
     args = parser.parse_args()
 
-    if args.call:
-        if args.call == "elo":
-            assert args.elo is not None
-            compute_elo(params, args.from_gen, args.to_gen, args.elo)
-        elif args.call == "selfplay":
-            selfplay(args.from_gen)
-        elif args.call == "train":
-            assert args.batch_idx is not None
-            last_batch_idx = _launch_in_process(train_nn, to_generation, "generation>={}".format(from_generation), args.batch_idx)
-            print("Last training batch idx= {}".format(last_batch_idx), flush=True)
-        else:
-            raise ValueError("Command undefined:", args.call)
-    else:
-        learn_to_play(args.from_gen, args.to_gen, args.batch_idx, args.elo, args.start_train)
+    main(args)

@@ -27,12 +27,11 @@ class SelfPlay(object):
         visit_counts = await mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
                                              self.params.self_play.mcts.mcts_cpuct,
                                              self.params.self_play.mcts.max_async_searches, dirichlet)
-        
         # apply temperature
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
-        probs = probs / (1.000001*probs.sum()) # TODO: p/p.sum() is sometimes > 1
+        probs = 0.9999999*probs / probs.sum() # TODO: p/p.sum() is sometimes > 1
         sampled = np.random.multinomial(1, np.append(probs, 0), 1)
-        move = np.argmax(sampled)
+        move = np.argmax(sampled[:, :-1])
         return move
 
     async def play_game(self, game_state, idx):
@@ -141,13 +140,23 @@ class SelfPlay(object):
         return df
 
 
+def _fut_cb(fut):
+    if fut.exception():
+        print(fut.exception(), flush=True)
+        raise fut.exception()
+
+
 _env_ = None
 def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, player_change_callback=None):
     global _env_
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    import multiprocessing as mp    
     import time
     import self_play
     from nn import NeuralNetWrapper
-    import multiprocessing as mp
+
     pid = mp.current_process().pid
 
     _env_ = DotDict({})
@@ -155,14 +164,15 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
     if not isinstance(nn_class, (list,tuple)):
         nn_class, generations, params = (nn_class,), (generations,), (params,)
     else:
-        _env_.one_generation = True
+        _env_.compare_models = True
     assert len(nn_class) == len(generations) == len(params)
 
     players_params = {}
     models = {}
     for i in range(len(generations)):
         models[i] = nn_class[i](params[i])
-        models[i].load_parameters(generations[i])
+        if generations[i] != 0:
+            models[i].load_parameters(generations[i]-(1 if len(nn_class)==1 else 0))
         players_params[i] = params[i]
 
     if len(models) == 1:
@@ -204,7 +214,9 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
                                    timeout=sp_params.nn_batch_timeout, 
                                    batch_builder=sp_params.nn_batch_builder)
     _env_.tasks = []
-    _env_.tasks.append(asyncio.ensure_future(_env_.nnet.run(), loop=loop))
+    fut = asyncio.ensure_future(_env_.nnet.run(), loop=loop)
+    fut.add_done_callback(_fut_cb) # re-raise exception if occured in nnet
+    _env_.tasks.append(fut)
 
 
 def _player_change_callback(player):
@@ -218,10 +230,12 @@ def _worker_run(games_idxs):
     from dots_boxes.dots_boxes_game import BoxesState
     from utils.utils import write_to_hdf
     import time
+    loop = asyncio.get_event_loop()
+    #loop.set_debug(True)
 
     tick = time.time()
 
-    loop = asyncio.get_event_loop()
+
     try:
         _env_.sp = self_play.SelfPlay(_env_.nnet, _env_.params)
         _env_.sp.set_player_change_callback(_player_change_callback)
@@ -232,8 +246,8 @@ def _worker_run(games_idxs):
 
     tack = time.time()
 
-    df = _env_.sp.get_datasets(_env_.generations, not _env_.one_generation)
-    if not _env_.one_generations:
+    df = _env_.sp.get_datasets(_env_.generations, not _env_.compare_models)
+    if not _env_.compare_models:
         df["training"] = np.zeros(len(df.index), dtype=np.int8)
 
     with _env_.hdf_lock:
@@ -248,15 +262,20 @@ def _worker_run(games_idxs):
 def _worker_teardown(not_used):
     import time
     loop = asyncio.get_event_loop()
-    for t in _env_.tasks:
-        t.cancel()
-    loop.run_until_complete(asyncio.sleep(0.01))
-    asyncio.get_event_loop().close()
+    try:
+        for  t in _env_.tasks:
+            t.cancel()
+        loop.run_until_complete(asyncio.sleep(0.01))
+        asyncio.get_event_loop().close()
+    except Exception as e:
+        print(e, flush=True)
+        raise e
     time.sleep(0.1)
 
 def _err_cb(err):
-    print("Got an exception from a worker:", err, flush=True)
-    raise err
+    if isinstance(err, BaseException):
+        print("Got an exception from a worker:", err, flush=True)
+        raise err
 
 def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_workers=None, games_per_workers=10):
     nw = n_workers if n_workers else mp.cpu_count() - 1
@@ -297,8 +316,7 @@ def compute_elo(hdf_file_name, params, generations, elos, n_games, n_workers=Non
     n1 = len(winners)-n0
     elo0, elo1 = elo_rating2(elos[0], elos[1], n0, n1, K=30)
 
-    print("Generation {} won {} games and generation {} won {} games".format(generations[0], n0, generations[1], n1))
-    print("Old Elo scores: gen{}= {:.1f}, gen{}= {:.1f}".format(generations[0], elos[0], generations[1], elos[1]), flush=True)
-    print("New Elo scores: gen{}= {:.1f}, gen{}= {:.1f}".format(generations[0], elo0, generations[1], elo1), flush=True)
+    print("Player 0 ({} gen{}): won={}, new elo={}".format(params[0].nn.model_class.__name__, generations[0], n0, elo0))
+    print("Player 1 ({} gen{}): won={}, new elo={}".format(params[1].nn.model_class.__name__, generations[1], n1, elo1))
 
     return elo0, elo1

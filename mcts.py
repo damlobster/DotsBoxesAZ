@@ -206,12 +206,19 @@ async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pen
         if len(pending) >= max_pend:
             _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             max_pend = max_pending_evals
-        pending.add(asyncio.ensure_future(_search()))
+        fut = asyncio.ensure_future(_search())
+        fut.add_done_callback(_err_cb)
+        pending.add(fut)
 
     if len(pending) > 0:
         done, pending = await asyncio.wait(pending)
  
     return root_node.child_number_visits
+
+def _err_cb(fut):
+    if fut.exception():
+        print(fut.exception(), flush=True)
+        raise fut.exception()
 
 def print_mcts_tree(root_node: UCTNode, prefix=""):
     print("{}{} -> {}".format(prefix, root_node.move, root_node.game_state.hash))

@@ -84,12 +84,13 @@ resnet20 = DotDict({
         "init": partial(BoxesState.init_static_fields, ((3, 3),)),
     },
     "self_play": {
-        "n_workers": 11,
         "num_games": 1000,
+        "n_workers": 11,
+        "games_per_workers": 10,
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "nn_batch_size": 48,
-        "nn_batch_timeout": 0.01,
+        "nn_batch_timeout": 0.05,
         "nn_batch_builder": nn_batch_builder,
         "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
         "mcts": {
@@ -101,7 +102,7 @@ resnet20 = DotDict({
         }
     },
     "elo": {
-        "hdf_file": "data/resnet3310/elo_data.hdf",
+        "hdf_file": "data/resnet3110/elo_data.hdf",
         "n_games": 10,
         "n_workers": 10,
         "games_per_workers": 1
@@ -113,30 +114,32 @@ resnet20 = DotDict({
             "train_batch_size": 512,
             "val_batch_size": 1024,
             "lr": 1e-4,
-            "lr_scheduler": {"max_lr_factor": 10, "step_size": 2000},
             "adam_params": {
                 "betas": (0.9, 0.999),
                 "weight_decay": 1e-5,
             },
         },
-        "model_class": SimpleNN,
+        "model_class": ResNetZero,
         "pytorch_device": "cuda:1",
-        "chkpts_filename": "data/resnet3310/model_gen{}.pt",
+        "chkpts_filename": "data/resnet3110/model_gen{}.pt",
         "model_parameters": {
             "resnet": {
                 "in_channels": 3,
-                "nb_channels": 256,
+                "nb_channels": 100,
                 "kernel_size": 3,
-                "nb_blocks": 20
+                "nb_blocks": 7
             },
             "policy_head": {
-                "in_channels": 256,
+                "in_channels": 100,
+                "activation_map": (4,4),
+                "inner_channels":64,
                 "nb_actions": 32,
             },
             "value_head": {
-                "in_channels": 256,
-                "nb_actions": 32,
-                "n_hidden": 128
+                "in_channels": 100,
+                "activation_map": (4,4),
+                "n_hidden0": 64,
+                "n_hidden1": 32
             },
         }
     }
