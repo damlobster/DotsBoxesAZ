@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 import asyncio
 import numpy as np
 import torch
@@ -7,7 +10,6 @@ import torch.utils.data as data
 import pandas as pd
 
 import utils
-
 from game import GameState
 
 
@@ -101,13 +103,13 @@ class ResNetZero(nn.Module):
     def save_parameters(self, generation):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
-        print("Model saved to:", fn, flush=True)
+        logger.info("Model saved to: %s", fn)
         torch.save(self.state_dict(), fn)
 
     def load_parameters(self, generation, to_device=None):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
-        print("Model loaded from:", fn, flush=True)
+        logger.info("Model loaded from: %s", fn)
         self.load_state_dict(torch.load(fn, map_location=to_device))
 
 class AlphaZeroLoss(nn.Module):
@@ -121,7 +123,7 @@ class AlphaZeroLoss(nn.Module):
 
 def _err_cb(fut):
     if fut.exception():
-        print(fut.exception(), flush=True)
+        logger.error(fut.exception())
         raise fut.exception()
 
 class NeuralNetWrapper():
@@ -169,18 +171,12 @@ class NeuralNetWrapper():
         lr = params.lr
         optimizer = torch.optim.Adam(
             self.model.parameters(), lr=lr, **params.adam_params)
-        """lr_scheduler = CyclicLR(optimizer,
-                                base_lr=lr,
-                                max_lr=lr*params.lr_scheduler.max_lr_factor,
-                                step_size=params.lr_scheduler.step_size,
-                                last_batch_iteration=batch_i)"""
 
         for epoch in range(params.nb_epochs):
 
             self.model.train(True)
             tr_loss = 0
             for boards, pi, z in train_data:
-                """lr_scheduler.batch_step()"""
                 batch_i += 1
                 # Transfer to GPU
                 boards = boards.to(self.device)
@@ -222,10 +218,7 @@ class NeuralNetWrapper():
                 val_loss = loss_v + loss_pi
                 writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i) #, walltime=batch_i)
 
-            print("Epoch {}, train loss= {:5f}, validation loss= {:5f}".format(
-                epoch, tr_loss/len(train_data), val_loss), flush=True)
-
-        #writer.export_scalars_to_json(self.params.tensorboard_log+"log_{}.json".format(last_batch_idx))
+            print(f"Epoch {epoch}, train loss= {tr_loss/len(train_data):5f}, validation loss= {val_loss:5f}", flush=True)
 
         return batch_i
 

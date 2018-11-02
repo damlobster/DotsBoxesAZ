@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 import asyncio
 from async_timeout import timeout
 import multiprocessing as mp
@@ -52,7 +55,7 @@ class AsyncBatchedProxy():
                 call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
                 if call_func:
                     n = min(len(ts), self.batch_size)
-                    #print(n, flush=True)
+                    logger.debug("batch size=%d", n)
                     results = await self.func(self.batch_builder(*args[:n]))
                     ps, vs = results
                     for i, fut in enumerate(futs[:n]):
