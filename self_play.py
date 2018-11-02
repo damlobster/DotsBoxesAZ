@@ -164,18 +164,22 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
         _env_.compare_models = True
     assert len(nn_class) == len(generations) == len(params)
 
+    pytorch_device = devices[pid%len(devices)]
     players_params = {}
     models = {}
     for i in range(len(generations)):
         models[i] = nn_class[i](params[i])
         if generations[i] != 0:
-            models[i].load_parameters(generations[i]-(1 if len(nn_class)==1 else 0))
+            models[i].load_parameters(generations[i]-(1 if len(nn_class)==1 else 0), to_device=pytorch_device)
         players_params[i] = params[i]
 
     if len(models) == 1:
         models[1] = models[0]
         players_params[1] = players_params[0]
         generations = [generations[0], generations[0]]
+
+    players_params[0].nn.pytorch_device = pytorch_device
+    players_params[1].nn.pytorch_device = pytorch_device
 
     # shuffle the players based on the pid, important for computing the Elo score
     if pid % 2 != 0:
@@ -186,10 +190,6 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
         players_params[0] = players_params[1]
         players_params[1] = players_params[0]
         generations = list(reversed(generations))
-
-    pytorch_device = devices[pid%len(devices)]
-    players_params[0].nn.pytorch_device = pytorch_device
-    players_params[1].nn.pytorch_device = pytorch_device
 
     _env_.models = models
     _env_.players_params = DotDict(players_params)
@@ -252,8 +252,8 @@ def _worker_run(games_idxs):
 
     tock = time.time()
 
-    print("Worker {} played {} games ({} samples) in {:.0f}s (save={:.3f}s)".format(
-        _env_.name, len(games_idxs), len(df.index), tock-tick, tock-tack), flush=True)
+    logger.info("Worker %d played %d games (%d samples) in %.0fs (save=%.3fs)", 
+        _env_.name, len(games_idxs), len(df.index), tock-tick, tock-tack)
 
 
 def _worker_teardown(not_used):
@@ -283,8 +283,12 @@ def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_worke
     lock = mp.Lock()
     devices = params.self_play.pytorch_devices
     with mp.Pool(nw, initializer=_worker_init, initargs=(hdf_file_name, devices, lock, generation, nn_class, params)) as pool:
-        tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=_err_cb) for idxs in games_idxs]
-        [t.wait() for t in tasks]
+        try:    
+            tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=_err_cb) for idxs in games_idxs]
+            [t.wait() for t in tasks]
+        except Exception as e:
+            logger.exception("An error occured")
+            raise e
         pool.map(_worker_teardown, range(nw))
 
 
@@ -299,8 +303,12 @@ def compute_elo(elo_params, params, generations, elos):
     devices = params[0].self_play.pytorch_devices
     nn_classes = list(p.nn.model_class for p in params)
     with mp.Pool(nw, initializer=_worker_init, initargs=(elo_params.hdf_file, devices, lock, generations, nn_classes, params)) as pool:
-        tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=_err_cb) for idxs in games_idxs]
-        [t.wait() for t in tasks]
+        try:
+            tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=_err_cb) for idxs in games_idxs]
+            [t.wait() for t in tasks]
+        except Exception as e:
+            logger.exception("An error occured")
+            raise e
         pool.map(_worker_teardown, range(nw))
 
     # compute new elo score
