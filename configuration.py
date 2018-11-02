@@ -116,8 +116,8 @@ resnet20 = DotDict({
         "train_params": {
             "nb_epochs": 9,
             "train_split": 0.9,
-            "train_batch_size": 512,
-            "val_batch_size": 1024,
+            "train_batch_size": 2048,
+            "val_batch_size": 2048,
             "lr": 1e-4,
             "adam_params": {
                 "betas": (0.9, 0.999),
@@ -174,11 +174,11 @@ DEFAULT_LOGGING = {
         },
         'nn': {
             'handlers': ['default'],
-            'level': 'INFO',
+            'level': 'WARNING',
         },
         'self_play': {
             'handlers': ['default'],
-            'level': 'INFO',
+            'level': 'WARNING',
         },
         'utils.proxies':{
             'handlers': ['default'],
