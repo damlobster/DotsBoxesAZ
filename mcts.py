@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 import asyncio
 import collections
 from functools import partial
@@ -151,9 +154,9 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
         root.tree_size = nb_visits
         del previous_node.children
     else:
-        next_node = mcts.create_root_uct_node(
-            root_node.children[move].game_state)
-        next_node.move = nove
+        next_node = create_root_uct_node(
+            previous_node.children[move].game_state)
+        next_node.move = move
     
     return next_node
 
