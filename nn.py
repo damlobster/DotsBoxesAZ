@@ -110,7 +110,8 @@ class ResNetZero(nn.Module):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
         logger.info("Model loaded from: %s", fn)
-        self.load_state_dict(torch.load(fn, map_location=to_device))
+        self.load_state_dict(torch.load(fn, map_location='cpu'))
+        self.to(to_device)
 
 class AlphaZeroLoss(nn.Module):
     def __init__(self):
@@ -161,7 +162,7 @@ class NeuralNetWrapper():
         params = self.params.nn.train_params
 
         train_data = data.DataLoader(
-            train_dataset, params.train_batch_size, shuffle=True)
+            train_dataset, params.train_batch_size, shuffle=True, drop_last=True)
         validation_data = data.DataLoader(
             val_dataset, params.val_batch_size) if val_dataset is not None else None
 
