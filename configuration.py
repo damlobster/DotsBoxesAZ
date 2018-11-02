@@ -1,11 +1,12 @@
-import logging
-logging.basicConfig(level=logging.INFO)
 from functools import partial
 
 from utils.utils import get_cuda_devices_list, DotDict
 from dots_boxes.dots_boxes_game import BoxesState, nn_batch_builder
 from dots_boxes.dots_boxes_nn import SimpleNN
 from nn import ResNetZero
+
+import logging
+import logging.config
 
 BoxesState.init_static_fields(dims=(3, 3))
 
@@ -85,7 +86,7 @@ resnet20 = DotDict({
     },
     "self_play": {
         "num_games": 1000,
-        "n_workers": 11,
+        "n_workers": 12,
         "games_per_workers": 10,
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
@@ -105,7 +106,11 @@ resnet20 = DotDict({
         "hdf_file": "data/resnet3110/elo_data.hdf",
         "n_games": 10,
         "n_workers": 10,
-        "games_per_workers": 1
+        "games_per_workers": 1,
+        "self_play_override":{
+            "reuse_mcts_tree": False,
+            "noise": (0.0, 0.0),
+        }
     },
     "nn": {
         "train_params": {
@@ -127,7 +132,7 @@ resnet20 = DotDict({
                 "in_channels": 3,
                 "nb_channels": 100,
                 "kernel_size": 3,
-                "nb_blocks": 7
+                "nb_blocks": 20
             },
             "policy_head": {
                 "in_channels": 100,
@@ -146,3 +151,39 @@ resnet20 = DotDict({
 })
 
 params = resnet20
+
+DEFAULT_LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': True,
+    'formatters': { 
+        'standard': { 
+            'format': '%(message)s'
+        },
+    },
+    'handlers': { 
+        'default': { 
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+            'stream'  : 'ext://sys.stderr'
+        },
+    },
+    'loggers': {
+        'mcts': {
+            'handlers': ['default'],
+            'level': 'INFO',
+        },
+        'nn': {
+            'handlers': ['default'],
+            'level': 'INFO',
+        },
+        'self_play': {
+            'handlers': ['default'],
+            'level': 'INFO',
+        },
+        'utils.proxies':{
+            'handlers': ['default'],
+            'level': 'INFO'
+        }
+    }
+}
+logging.config.dictConfig(DEFAULT_LOGGING)
