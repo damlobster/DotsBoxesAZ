@@ -1,17 +1,16 @@
 import asyncio
-import logging
 import sys
 import random
 from functools import partial
 import torch.multiprocessing as mp
-mpl = mp.log_to_stderr()
-mpl.setLevel(logging.WARNING)
+import configuration
+import logging
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
 
 from utils.utils import DotDict, elo_rating2
-from utils.proxies import AsyncBatchedProxy
 import mcts
 
 
@@ -149,13 +148,11 @@ def _fut_cb(fut):
 _env_ = None
 def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, player_change_callback=None):
     global _env_
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
     import multiprocessing as mp    
     import time
     import self_play
     from nn import NeuralNetWrapper
+    from utils.proxies import AsyncBatchedProxy
 
     pid = mp.current_process().pid
 
@@ -203,7 +200,7 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
     _env_.hdf_file_name = hdf_file_name
     _env_.hdf_lock = lock
 
-    print("Worker {} uses device {}".format(_env_.name, _env_.params.nn.pytorch_device), flush=True)
+    logger.info("Worker %s uses device %s", _env_.name, _env_.params.nn.pytorch_device)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)            
@@ -268,13 +265,13 @@ def _worker_teardown(not_used):
         loop.run_until_complete(asyncio.sleep(0.01))
         asyncio.get_event_loop().close()
     except Exception as e:
-        print(e, flush=True)
+        logger.exception("An error occured during workers teardown.")
         raise e
     time.sleep(0.1)
 
 def _err_cb(err):
     if isinstance(err, BaseException):
-        print("Got an exception from a worker:", err, flush=True)
+        logger.error("Got an exception from a worker: %s", err)
         raise err
 
 def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_workers=None, games_per_workers=10):
@@ -291,22 +288,23 @@ def generate_games(hdf_file_name, generation, nn_class, n_games, params, n_worke
         pool.map(_worker_teardown, range(nw))
 
 
-def compute_elo(hdf_file_name, params, generations, elos, n_games, n_workers=None, games_per_workers=10):
-    nw = n_workers if n_workers else mp.cpu_count() - 1
-    gpw = games_per_workers if games_per_workers else max(1, n_games//nw)
-    games_idxs = np.array_split(np.arange(n_games), n_games//gpw)
+def compute_elo(elo_params, params, generations, elos):
+    nw = elo_params.n_workers if elo_params.n_workers else mp.cpu_count() - 1
+    gpw = elo_params.games_per_workers if elo_params.games_per_workers else max(1, elo_params.n_games//nw)
+    games_idxs = np.array_split(np.arange(elo_params.n_games), elo_params.n_games//gpw)
     nw = min(nw, len(games_idxs))
 
     lock = mp.Lock()
+    params[0].self_play.merge(elo_params.self_play_override)
     devices = params[0].self_play.pytorch_devices
     nn_classes = list(p.nn.model_class for p in params)
-    with mp.Pool(nw, initializer=_worker_init, initargs=(hdf_file_name, devices, lock, generations, nn_classes, params)) as pool:
+    with mp.Pool(nw, initializer=_worker_init, initargs=(elo_params.hdf_file, devices, lock, generations, nn_classes, params)) as pool:
         tasks = [pool.apply_async(_worker_run, (idxs,), error_callback=_err_cb) for idxs in games_idxs]
         [t.wait() for t in tasks]
         pool.map(_worker_teardown, range(nw))
 
     # compute new elo score
-    with pd.HDFStore(hdf_file_name, mode="a") as store:
+    with pd.HDFStore(elo_params.hdf_file, mode="a") as store:
         games = store.get("/fresh")
         del store["/fresh"]
         store.put("elo{}vs{}".format(*generations), games, format="table", append=False)

@@ -1,7 +1,3 @@
-import logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("asyncio").setLevel(logging.DEBUG)
-
 import argparse
 import os
 import torch.multiprocessing as mp
@@ -19,7 +15,6 @@ def _launch_in_process(func, *args):
         return res[0]
 
 def selfplay(params, generation):
-    #import configuration
     import time
     from self_play import generate_games
 
@@ -85,8 +80,7 @@ def compute_elo(elo_params, player0, player1):
     print("Computation of Elo ratings")
     print("Player0: model={}, generation={}, elo={}".format(params0.nn.model_class.__name__, gen0, elo0))
     print("Player1: model={}, generation={}, elo={}".format(params1.nn.model_class.__name__, gen1, elo1))
-    elo0, elo1 = elo(elo_params.hdf_file, [params0, params1], [gen0, gen1], (elo0, elo1), elo_params.n_games, 
-                n_workers=params1.self_play.n_workers, games_per_workers=elo_params.games_per_workers)
+    elo0, elo1 = elo(elo_params, [params0, params1], [gen0, gen1], (elo0, elo1))
     print("Elo ratings computation finished in {} sec.!".format(time.time()-tick))
     return elo0, elo1
 
