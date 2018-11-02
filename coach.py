@@ -1,5 +1,6 @@
 import argparse
 import os
+import torch
 import torch.multiprocessing as mp
 from tensorboardX import SummaryWriter
 from functools import partial
@@ -25,7 +26,7 @@ def selfplay(params, generation):
     generate_games(params.hdf_file, generation, params.nn.model_class, 
                    params.self_play.num_games, params, 
                    n_workers=params.self_play.n_workers, games_per_workers=params.self_play.games_per_workers)
-    print("Selfplay finished !!! Generation of {} games took {} sec.".format(params.self_play.num_games, time.time()-tick))
+    print(f"Selfplay finished !!! Generation of {params.self_play.num_games} games took {time.time()-tick:.0f} sec.")
 
 
 def train_nn(params, generation, where, writer, last_batch_idx):
@@ -63,6 +64,9 @@ def train_nn(params, generation, where, writer, last_batch_idx):
 
     last_batch_idx = wrapper.train(train_ds, val_ds, writer, last_batch_idx)
     model.save_parameters(generation)
+    # free cuda cache so that this memory can be used by spawned selfplay processes
+    del model, wrapper, train_ds, val_ds
+    torch.cuda.empty_cache() 
 
     print("Training finished in {} sec. (batch_idx={})".format(time.time()-tick, last_batch_idx))
     return last_batch_idx
@@ -76,7 +80,7 @@ def compute_elo(elo_params, player0, player1):
     params1, gen1, elo1 = player1
 
     tick = time.time()
-    print("*"*70)
+    print("-"*70)
     print("Computation of Elo ratings")
     print("Player0: model={}, generation={}, elo={}".format(params0.nn.model_class.__name__, gen0, elo0))
     print("Player1: model={}, generation={}, elo={}".format(params1.nn.model_class.__name__, gen1, elo1))
@@ -92,6 +96,7 @@ def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_m
 
         writer = SummaryWriter(params.tensorboard_log)
         window_start = 0 if from_generation <= 3 else (from_generation - 3)//2
+        window_start = window_start if from_generation-window_start < 20 else from_generation-20 
         where = "generation>={}".format(window_start)
         last_batch_idx = train_nn(params, from_generation, where, writer, last_batch_idx)
         print("Last training batch idx= {}".format(last_batch_idx), flush=True)
