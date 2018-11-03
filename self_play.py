@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import copy
 import random
 from functools import partial
 import torch.multiprocessing as mp
@@ -299,6 +300,7 @@ def compute_elo(elo_params, params, generations, elos):
     nw = min(nw, len(games_idxs))
 
     lock = mp.Lock()
+    params = copy.deepcopy(params)
     params[0].self_play.merge(elo_params.self_play_override)
     devices = params[0].self_play.pytorch_devices
     nn_classes = list(p.nn.model_class for p in params)

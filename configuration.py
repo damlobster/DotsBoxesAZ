@@ -116,6 +116,9 @@ resnet20 = DotDict({
         }
     },
     "nn": {
+        "model_class": ResNetZero,
+        "pytorch_device": "cuda:1",
+        "chkpts_filename": "data/resnet0311/model_gen{}.pt",
         "train_params": {
             "nb_epochs": 5,
             "train_split": 0.9,
@@ -128,9 +131,6 @@ resnet20 = DotDict({
                 "weight_decay": 1e-4,
             },
         },
-        "model_class": ResNetZero,
-        "pytorch_device": "cuda:1",
-        "chkpts_filename": "data/resnet0311/model_gen{}.pt",
         "model_parameters": {
             "resnet": {
                 "in_channels": 3,
