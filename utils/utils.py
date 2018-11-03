@@ -36,7 +36,7 @@ class DotDict(dict):
         for k, v in merge_dct.items():
             if (k in self and isinstance(self[k], dict)
                     and isinstance(merge_dct[k], dict)):
-                dict_merge(self[k], merge_dct[k])
+                self[k].merge(merge_dct[k])
             else:
                 self[k] = merge_dct[k]
 
