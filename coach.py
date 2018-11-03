@@ -21,12 +21,12 @@ def selfplay(params, generation):
 
     tick = time.time()
     print("*"*70)
-    print("Selfplay start for generation {} ...".format(generation))
-    print("Model used:", params.nn.model_class)
+    print(f"Selfplay start for generation {generation}...")
+    print("Model used:", params.nn.model_class, flush=True)
     generate_games(params.hdf_file, generation, params.nn.model_class, 
                    params.self_play.num_games, params, 
                    n_workers=params.self_play.n_workers, games_per_workers=params.self_play.games_per_workers)
-    print(f"Selfplay finished !!! Generation of {params.self_play.num_games} games took {time.time()-tick:.0f} sec.")
+    print(f"Selfplay finished. Generation of {params.self_play.num_games} games took {time.time()-tick:.0f} sec.", flush=True)
 
 
 def train_nn(params, generation, where, writer, last_batch_idx):
@@ -38,7 +38,7 @@ def train_nn(params, generation, where, writer, last_batch_idx):
 
     tick = time.time()
     print("-"*70)
-    print("Train neural net for generation {} (where={})".format(generation, where))
+    print(f"Train neural net for generation {generation} (where:{where})...", flush=True)
 
     # copy new training data to current dataframe (key=data)
     with pd.HDFStore(params.hdf_file, mode="a") as store:
@@ -53,7 +53,7 @@ def train_nn(params, generation, where, writer, last_batch_idx):
             store.append('/data', new_samples, format='table')
             del store['/fresh']
         else:
-            print("No new training data! Is it normal?")
+            print("No new training data! Is it normal?", flush=True)
 
     train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
     val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
@@ -62,13 +62,15 @@ def train_nn(params, generation, where, writer, last_batch_idx):
         model.load_parameters(generation-1)
     wrapper = NeuralNetWrapper(model, params)
 
+    if params.nn.lr_scheduler is not None:
+        params.nn.lr = params.nn.lr_scheduler(generation)
     last_batch_idx = wrapper.train(train_ds, val_ds, writer, last_batch_idx)
     model.save_parameters(generation)
     # free cuda cache so that this memory can be used by spawned selfplay processes
     del model, wrapper, train_ds, val_ds
     torch.cuda.empty_cache() 
 
-    print("Training finished in {} sec. (batch_idx={})".format(time.time()-tick, last_batch_idx))
+    print(f"Training finished in {time.time()-tick:.0f} sec. (batch_idx={last_batch_idx})", flush=True)
     return last_batch_idx
 
 
@@ -81,11 +83,9 @@ def compute_elo(elo_params, player0, player1):
 
     tick = time.time()
     print("-"*70)
-    print("Computation of Elo ratings")
-    print("Player0: model={}, generation={}, elo={}".format(params0.nn.model_class.__name__, gen0, elo0))
-    print("Player1: model={}, generation={}, elo={}".format(params1.nn.model_class.__name__, gen1, elo1))
+    print("Computation of Elo ratings...")
     elo0, elo1 = elo(elo_params, [params0, params1], [gen0, gen1], (elo0, elo1))
-    print("Elo ratings computation finished in {} sec.!".format(time.time()-tick))
+    print(f"Elo ratings computation finished in {time.time()-tick:.0f} sec.!", flush=True)
     return elo0, elo1
 
 def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_model_elo=1200, start_train=False):
@@ -95,11 +95,10 @@ def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_m
         start_train = False
 
         writer = SummaryWriter(params.tensorboard_log)
-        window_start = 0 if from_generation <= 3 else (from_generation - 3)//2
-        window_start = window_start if from_generation-window_start < 20 else from_generation-20 
-        where = "generation>={}".format(window_start)
+        where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
+        params.nn.train_params.lr = params.nn.train_params.lr_scheduler(from_generation)
         last_batch_idx = train_nn(params, from_generation, where, writer, last_batch_idx)
-        print("Last training batch idx= {}".format(last_batch_idx), flush=True)
+        print(f"Last training batch idx= {last_batch_idx}", flush=True)
 
         if from_generation > 0:
             player0 = (params, from_generation-1, last_model_elo)

@@ -322,7 +322,7 @@ def compute_elo(elo_params, params, generations, elos):
     n1 = len(winners)-n0
     elo0, elo1 = elo_rating2(elos[0], elos[1], n0, n1, K=30)
 
-    print("Player 0 ({} gen{}): won={}, new elo={}".format(params[0].nn.model_class.__name__, generations[0], n0, elo0))
-    print("Player 1 ({} gen{}): won={}, new elo={}".format(params[1].nn.model_class.__name__, generations[1], n1, elo1))
-
+    print(f"{params[0].nn.model_class.__name__} generation {generations[0]}: wins={n0}, elo={elos[0]} -> {elo0}")
+    print(f"{params[1].nn.model_class.__name__} generation {generations[1]}: wins={n1}, elo={elos[1]} -> {elo1}")
+    
     return elo0, elo1

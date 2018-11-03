@@ -17,12 +17,14 @@ class ResNet(nn.Module):
     def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks):
         super(ResNet, self).__init__()
         self.conv0 = _create_conv_layer(in_channels, nb_channels, kernel_size)
+        self.bn0 = nn.BatchNorm2d(nb_channels)
         self.resblocks = nn.Sequential(
             *(ResBlock(nb_channels, kernel_size) for _ in range(nb_blocks))
         )
 
     def forward(self, x):
-        x = F.relu(self.conv0(x))
+        x = self.conv0(x)
+        x = F.relu(self.bn0(x))
         x = self.resblocks(x)
         return x
 
@@ -36,8 +38,8 @@ class ResBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(nb_channels)
 
     def forward(self, x):
-        _x = self.bn1(self.conv1(x))
-        _x = F.relu(_x)
+        _x = self.conv1(x)
+        _x = F.relu(self.bn1(_x))
         _x = self.bn2(self.conv2(_x))
         _x += x
         _x = F.relu(_x)
@@ -55,33 +57,33 @@ def _create_conv_layer(in_channels, out_channels, kernel_size):
 
 
 class PolicyHead(nn.Module):
-    def __init__(self, in_channels, activation_map, inner_channels, nb_actions):
+    def __init__(self, in_channels, inner_channels, fc_in, nb_actions):
         super(PolicyHead, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=activation_map)
+        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1,1))
         self.bn0 = nn.BatchNorm2d(inner_channels)
-        self.fc = nn.Linear(inner_channels, nb_actions)
+        self.fc = nn.Linear(fc_in, nb_actions)
 
     def forward(self, x):
         x = self.conv0(x)
-        x = F.relu(self.bn0(x)).view(x.size(0), -1)
-        x = self.fc(x)
+        x = F.relu(self.bn0(x))
+        x = self.fc(x.view(x.size(0), -1))
         p = F.log_softmax(x, dim=1)
         return p
 
 
 class ValueHead(nn.Module):
-    def __init__(self, in_channels, activation_map, n_hidden0, n_hidden1):
+    def __init__(self, in_channels, inner_channels, fc_in, fc_inner):
         super(ValueHead, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels, n_hidden0, kernel_size=activation_map)
-        self.bn0 = nn.BatchNorm2d(n_hidden0)
-        self.fc0 = nn.Linear(n_hidden0, n_hidden1)
-        self.fc1 = nn.Linear(n_hidden1, 1)
+        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1,1))
+        self.bn0 = nn.BatchNorm2d(inner_channels)
+        self.fc0 = nn.Linear(fc_in, fc_inner)
+        self.fc1 = nn.Linear(fc_inner, 1)
 
     def forward(self, x):
         x = self.conv0(x)
-        x = self.bn0(F.relu(x)).view(x.size(0), -1)
-        x = F.relu(self.fc0(x))
-        x = F.relu(self.fc1(x))
+        x = F.relu(self.bn0(x))
+        x = F.relu(self.fc0(x.view(x.size(0), -1)))
+        x = self.fc1(x)
         v = torch.tanh(x)
         return v
 
@@ -169,9 +171,11 @@ class NeuralNetWrapper():
         criterion = AlphaZeroLoss()
 
         batch_i = last_batch_idx + 1
-        lr = params.lr
+
+        print(f"LR={params.lr}", flush=True)
+        writer.add_scalar("lr", params.lr, batch_i)
         optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=lr, **params.adam_params)
+            self.model.parameters(), lr=params.lr, **params.adam_params)
 
         for epoch in range(params.nb_epochs):
 
@@ -194,10 +198,11 @@ class NeuralNetWrapper():
                 loss_v, loss_pi = loss_v, loss_pi
                 tr_loss += loss_pi + loss_v
                 # write scalars to tensorboard
-                writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i) #, walltime=batch_i)
-                writer.add_scalar("lr", lr, batch_i) #lr_scheduler.get_lr()[0], batch_i)
+                writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
             
             val_loss = 0.0
+            loss_v = 0.0
+            loss_pi = 0.0
             if val_dataset:
                 self.model.train(False)
                 loss_pi, loss_v = 0.0, 0.0
@@ -208,9 +213,9 @@ class NeuralNetWrapper():
                     z = z.to(self.device)
 
                     p, v = self.model(boards)
-                    _, (loss_pi, loss_v) = criterion(p, v, pi, z)
-                    loss_v += loss_v
-                    loss_pi += loss_pi
+                    _, (_loss_pi, _loss_v) = criterion(p, v, pi, z)
+                    loss_v += _loss_v
+                    loss_pi += _loss_pi
 
                 # get eval loss average
                 n_batches = len(validation_data)
@@ -231,3 +236,17 @@ class NeuralNetWrapper():
 
     def load_model_parameters(self, generation, to_device=None):
         self.model.load_parameters(generation, to_device=to_device)
+
+
+class GenerationLrScheduler(object):
+    def __init__(self, schedule):
+        assert schedule is not None
+        self.schedule = schedule
+
+    def __call__(self, generation):
+        lr = None
+        for g in range(generation+1):
+            if g in self.schedule:
+                lr = self.schedule[g]
+        assert lr is not None
+        return lr
