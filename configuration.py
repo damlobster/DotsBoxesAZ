@@ -146,9 +146,9 @@ resnet20 = DotDict({
             },
             "value_head": {
                 "in_channels": 128,
-                "inner_channels": 2,
-                "fc_in": 2*16,
-                "fc_inner": 1*16
+                "inner_channels": 1,
+                "fc_in": 1*16,
+                "fc_inner": 12
             },
         }
     }

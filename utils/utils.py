@@ -69,8 +69,8 @@ class HDFStoreDataset(data.Dataset):
             cols = df.columns
             self.features = _reshape(df[list(c for c in cols if c.startswith("x_"))].values.astype(np.float32), features_shape)
             self.policy = df[list(c for c in cols if c.startswith("pi_"))].values.astype(np.float32)
-            #self.value = df.z.values.astype(np.float32)
-            self.value = 0.5 * (df.z.values.astype(np.float32) + df.q_value.values.astype(np.float32))
+            self.value = df.z.values.astype(np.float32)
+            #self.value = 0.5 * (df.z.values.astype(np.float32) + df.q_value.values.astype(np.float32))
 
     def __len__(self):
         return self.features.shape[0]
