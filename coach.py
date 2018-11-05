@@ -1,14 +1,12 @@
 import argparse
+import json
 import os
 import torch
 import torch.multiprocessing as mp
 from tensorboardX import SummaryWriter
 from functools import partial
 import configuration
-params = configuration.params
-
-if not os.path.exists(params.data_root):
-    os.makedirs(params.data_root)
+params = None
 
 def _launch_in_process(func, *args):
     with mp.Pool(processes = 1) as pool:
@@ -89,12 +87,14 @@ def compute_elo(elo_params, player0, player1):
     return elo0, elo1
 
 def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_model_elo=1200, start_train=False):
+    writer = SummaryWriter(params.tensorboard_log)
+    cfg = json.dumps(params, indent=4, default=lambda o: str(o)).replace(" ", "&nbsp;").replace("\n", "  \n")
+    writer.add_text("params", cfg)
     while from_generation <= to_generation:
         if not start_train:
             selfplay(params, from_generation)
         start_train = False
 
-        writer = SummaryWriter(params.tensorboard_log)
         where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
         params.nn.train_params.lr = params.nn.train_params.lr_scheduler(from_generation)
         last_batch_idx = train_nn(params, from_generation, where, writer, last_batch_idx)
@@ -106,15 +106,19 @@ def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_m
             _, last_model_elo = compute_elo(params.elo, player0, player1)
             writer.add_scalar('elo', last_model_elo, last_batch_idx)
 
-        writer.close()
         from_generation += 1
+    writer.close()
 
-def main(parser):
+def main(args):
     global params
     if args.params:
         params = eval(args.params)
     else:
         params = configuration.params
+        
+    params.rewrite_str("_exp_", args.exp)
+    if not os.path.exists(params.data_root):
+        os.makedirs(params.data_root)
 
     if args.call:
         eval(args.call)
@@ -127,6 +131,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Launch selfplay/train/elo loop')
     parser.add_argument('from_gen', type=int, help='start from generation nb')
     parser.add_argument('to_gen', type=int, help='stop at from generation nb')
+    parser.add_argument('exp', type=str, help='experiment tag')
     parser.add_argument('-b', '--batch_idx', dest='batch_idx', type=int, default=0, help='for tensorboard: batch idx')
     parser.add_argument('-t', '--start_train', dest='start_train', action="store_true", default=False, help='if set, start with training')
     parser.add_argument('-e', '--elo', dest='elo', type=int, default=1200, help='Elo of last generation player')
