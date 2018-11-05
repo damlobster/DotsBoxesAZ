@@ -57,3 +57,6 @@ Result = None
 +---+   +   +
 """
         self.assertEqual(s, result)
+
+if __name__ == '__main__':
+    unittest.main()
