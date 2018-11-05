@@ -27,7 +27,7 @@ def selfplay(params, generation):
     print(f"Selfplay finished. Generation of {params.self_play.num_games} games took {time.time()-tick:.0f} sec.", flush=True)
 
 
-def train_nn(params, generation, where, writer, last_batch_idx):
+def train_nn(params, generation, where, writer):
     import numpy as np
     import pandas as pd
     import time
@@ -56,14 +56,12 @@ def train_nn(params, generation, where, writer, last_batch_idx):
     train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
     val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
     model = params.nn.model_class(params)
-    if generation != 0:
-        model.load_parameters(generation-1)
     wrapper = NeuralNetWrapper(model, params)
 
     if params.nn.lr_scheduler is not None:
         params.nn.lr = params.nn.lr_scheduler(generation)
-    last_batch_idx = wrapper.train(train_ds, val_ds, writer, last_batch_idx)
-    model.save_parameters(generation)
+    last_batch_idx = wrapper.train(train_ds, val_ds, writer, generation)
+
     # free cuda cache so that this memory can be used by spawned selfplay processes
     del model, wrapper, train_ds, val_ds
     torch.cuda.empty_cache() 
@@ -86,7 +84,7 @@ def compute_elo(elo_params, player0, player1):
     print(f"Elo ratings computation finished in {time.time()-tick:.0f} sec.!", flush=True)
     return elo0, elo1
 
-def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_model_elo=1200, start_train=False):
+def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, start_train=False):
     writer = SummaryWriter(params.tensorboard_log)
     cfg = json.dumps(params, indent=4, default=lambda o: str(o)).replace(" ", "&nbsp;").replace("\n", "  \n")
     writer.add_text("params", cfg)
@@ -97,7 +95,7 @@ def learn_to_play(params, from_generation, to_generation, last_batch_idx, last_m
 
         where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
         params.nn.train_params.lr = params.nn.train_params.lr_scheduler(from_generation)
-        last_batch_idx = train_nn(params, from_generation, where, writer, last_batch_idx)
+        last_batch_idx = train_nn(params, from_generation, where, writer)
         print(f"Last training batch idx= {last_batch_idx}", flush=True)
 
         if from_generation > 0:
@@ -115,7 +113,7 @@ def main(args):
         params = eval(args.params)
     else:
         params = configuration.params
-        
+
     params.rewrite_str("_exp_", args.exp)
     if not os.path.exists(params.data_root):
         os.makedirs(params.data_root)
@@ -123,7 +121,7 @@ def main(args):
     if args.call:
         eval(args.call)
     else:
-        learn_to_play(params, args.from_gen, args.to_gen, args.batch_idx, args.elo, args.start_train)
+        learn_to_play(params, args.from_gen, args.to_gen, args.elo, args.start_train)
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
@@ -132,7 +130,6 @@ if __name__ == '__main__':
     parser.add_argument('from_gen', type=int, help='start from generation nb')
     parser.add_argument('to_gen', type=int, help='stop at from generation nb')
     parser.add_argument('exp', type=str, help='experiment tag')
-    parser.add_argument('-b', '--batch_idx', dest='batch_idx', type=int, default=0, help='for tensorboard: batch idx')
     parser.add_argument('-t', '--start_train', dest='start_train', action="store_true", default=False, help='if set, start with training')
     parser.add_argument('-e', '--elo', dest='elo', type=int, default=1200, help='Elo of last generation player')
     parser.add_argument('-c', '--call', dest='call', default=None, help='call a function')

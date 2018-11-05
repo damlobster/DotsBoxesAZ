@@ -21,8 +21,9 @@ simple = DotDict({
         "init": partial(BoxesState.init_static_fields, ((3,3),)),
     },
     "self_play": {
-        "num_games": 12,
+        "num_games": 1000,
         "n_workers": 12,
+        "games_per_workers": 10,
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "nn_batch_size": 48,
@@ -84,7 +85,7 @@ resnet20 = DotDict({
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
         "nn_batch_size": 48,
-        "nn_batch_timeout": 0.01,
+        "nn_batch_timeout": 0.05,
         "nn_batch_builder": nn_batch_builder,
         "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
         "mcts": {
@@ -117,8 +118,8 @@ resnet20 = DotDict({
             "train_split": 0.9,
             "train_batch_size": 2048,
             "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:1e-4}),
-            "lr": 1e-4,
+            "lr_scheduler": GenerationLrScheduler({0: 1e-1, 15:1e-2, 30:1e-3}),
+            "lr": None,
             "adam_params": {
                 "betas": (0.9, 0.999),
                 "weight_decay": 1e-4,
@@ -148,7 +149,7 @@ resnet20 = DotDict({
 })
 
 # configuration to use
-params = simple
+params = resnet20
 
 DEFAULT_LOGGING = {
     'version': 1,

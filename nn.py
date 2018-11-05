@@ -3,6 +3,7 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 import numpy as np
+import os
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -103,16 +104,17 @@ class ResNetZero(nn.Module):
         return (p, v)
 
     def save_parameters(self, generation):
-        filename = self.params.nn.chkpts_filename
-        fn = filename.format(generation)
-        logger.info("Model saved to: %s", fn)
-        torch.save(self.state_dict(), fn)
+        raise ValueError("Do not call!!!")
+        #filename = self.params.nn.chkpts_filename
+        #fn = filename.format(generation)
+        #logger.info("Model saved to: %s", fn)
+        #torch.save(self.state_dict(), fn)
 
     def load_parameters(self, generation, to_device=None):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
         logger.info("Model loaded from: %s", fn)
-        self.load_state_dict(torch.load(fn, map_location='cpu'))
+        self.load_state_dict(torch.load(fn, map_location='cpu')['model_dict'])
         self.to(to_device)
 
 class AlphaZeroLoss(nn.Module):
@@ -159,7 +161,7 @@ class NeuralNetWrapper():
         res = await self.predict(X)
         return res
 
-    def train(self, train_dataset, val_dataset, writer, last_batch_idx):
+    def train(self, train_dataset, val_dataset, writer, generation):
         #self.model = nn.DataParallel(self.model, device_ids=[1, 0])
         params = self.params.nn.train_params
 
@@ -169,14 +171,14 @@ class NeuralNetWrapper():
             val_dataset, params.val_batch_size) if val_dataset is not None else None
 
         criterion = AlphaZeroLoss()
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, **params.adam_params)
+        batch_i = 0
+        if generation > 0:
+            filename = self.params.nn.chkpts_filename.format(generation-1)
+            batch_i = load_checkpoint(filename, self.model, optimizer, self.device)
 
-        batch_i = last_batch_idx + 1
-
-        print(f"LR={params.lr}", flush=True)
+        logger.warning(f"LR={params.lr}")
         writer.add_scalar("lr", params.lr, batch_i)
-        optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=params.lr, **params.adam_params)
-
         for epoch in range(params.nb_epochs):
 
             self.model.train(True)
@@ -226,6 +228,8 @@ class NeuralNetWrapper():
 
             print(f"Epoch {epoch}, train loss= {tr_loss/len(train_data):5f}, validation loss= {val_loss:5f}", flush=True)
 
+        filename = self.params.nn.chkpts_filename.format(generation)
+        save_checkpoint(filename, self.model, optimizer, batch_i)
         return batch_i
 
 class GenerationLrScheduler(object):
@@ -240,3 +244,29 @@ class GenerationLrScheduler(object):
                 lr = self.schedule[g]
         assert lr is not None
         return lr
+
+
+def save_checkpoint(filename, model, optimizer, last_batch_idx):
+    state = {'last_batch_idx': last_batch_idx, 'model_dict': model.state_dict(),
+             'optimizer_dict': optimizer.state_dict()}
+    torch.save(state, filename)
+
+def load_checkpoint(filename, model, optimizer, to_device):
+    start_epoch = 0
+    if os.path.isfile(filename):
+        logger.info(f"=> loading checkpoint '{filename}'")
+        checkpoint = torch.load(filename, map_location='cpu')
+        last_batch_idx = checkpoint['last_batch_idx']
+        model.load_state_dict(checkpoint['model_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_dict'])
+    else:
+        raise ValueError(f"=> no checkpoint found at '{filename}'")
+
+
+    model.to(to_device)
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.to(to_device)
+
+    return last_batch_idx
