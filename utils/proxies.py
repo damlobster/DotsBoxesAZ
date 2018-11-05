@@ -21,8 +21,9 @@ class AsyncBatchedProxy():
         super(AsyncBatchedProxy, self).__init__()
         self.func = func
         self.with_cache = cache_size > 0
-        self.cache = pylru.lrucache(cache_size)
-        self.cache.cache_hash = cache_hash
+        if self.with_cache:
+            self.cache = pylru.lrucache(cache_size)
+            self.cache.cache_hash = cache_hash
         self.batch_size = batch_size
         self.timeout = timeout
         self.time_first_in = None
