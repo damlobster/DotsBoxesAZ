@@ -228,16 +228,6 @@ class NeuralNetWrapper():
 
         return batch_i
 
-    def save_model_parameters(self, generation=None):
-        if generation:
-            self.model.save_parameters(filename.format(generation))
-        else:
-            self.model.save_parameters(filename)
-
-    def load_model_parameters(self, generation, to_device=None):
-        self.model.load_parameters(generation, to_device=to_device)
-
-
 class GenerationLrScheduler(object):
     def __init__(self, schedule):
         assert schedule is not None
