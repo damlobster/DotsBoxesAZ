@@ -76,10 +76,11 @@ simple33 = DotDict({
     }
 })
 
+exp = "resnet.5c55911" 
 resnet20 = DotDict({
-    "data_root": "data/resnet0311",
-    "hdf_file": "data/resnet0311/sp_data.hdf",
-    "tensorboard_log": "data/tboard/resnet0311",
+    "data_root": f"data/{exp}",
+    "hdf_file": f"data/{exp}/sp_data.hdf",
+    "tensorboard_log": f"data/tboard/{exp}",
     "game": {
         "clazz": BoxesState,
         "init": partial(BoxesState.init_static_fields, ((3, 3),)),
@@ -103,7 +104,7 @@ resnet20 = DotDict({
         }
     },
     "elo": {
-        "hdf_file": "data/resnet0311/elo_data.hdf",
+        "hdf_file": f"data/{exp}/elo_data.hdf",
         "n_games": 10,
         "n_workers": 10,
         "games_per_workers": 1,
@@ -118,7 +119,7 @@ resnet20 = DotDict({
     "nn": {
         "model_class": ResNetZero,
         "pytorch_device": "cuda:1",
-        "chkpts_filename": "data/resnet0311/model_gen{}.pt",
+        "chkpts_filename": "data/"+exp+"/model_gen{}.pt",
         "train_params": {
             "nb_epochs": 5,
             "train_split": 0.9,

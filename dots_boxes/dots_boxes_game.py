@@ -178,7 +178,7 @@ def moves_to_string(moves, visits_counts=None):
                     count = 0 if np.isnan(v) else int(math.floor(10*v))
                     s += " {} +".format(count if count != 0 else " ")
 
-        strings.append(s.ljust(30))
+        strings.append(s)
         s = ''
         if(l < lines-1):
             for c in range(cols):
@@ -194,5 +194,5 @@ def moves_to_string(moves, visits_counts=None):
                         v = vc[np.ravel_multi_index((1, l, c), b.shape)]
                         count = 0 if np.isnan(v) else int(math.floor(10*v))
                         s += "{}   ".format(count if count != 0 else " ")
-        strings.append(s.ljust(30))
+        strings.append(s)
     return "\n".join(strings)
