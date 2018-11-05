@@ -40,6 +40,13 @@ class DotDict(dict):
             else:
                 self[k] = merge_dct[k]
 
+    def rewrite_str(self, tag, replacement):
+        for k, v in self.items():
+            if isinstance(v, str):
+                self[k] = v.replace(tag, replacement)
+            elif isinstance(v, dict):
+                v.rewrite_str(tag, replacement)
+
 class DictWithDefault(dict):
     def __init__(self, lmbda):
         super(DictWithDefault, self).__init__()
