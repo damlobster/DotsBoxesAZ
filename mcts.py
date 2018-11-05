@@ -161,7 +161,7 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     return next_node
 
 
-async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=64, dirichlet=(0.0, None), time_limit=None):
+async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=64, dirichlet=(0.0, 0.0), time_limit=None):
     import multiprocessing as mp
     async def _search():
         leaf = root_node.select_leaf()
