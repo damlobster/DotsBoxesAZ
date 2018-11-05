@@ -20,6 +20,7 @@ class AsyncBatchedProxy():
                  cache_size=400000, cache_hash=lambda args: args[0].get_hash()):
         super(AsyncBatchedProxy, self).__init__()
         self.func = func
+        self.with_cache = cache_size > 0
         self.cache = pylru.lrucache(cache_size)
         self.cache.cache_hash = cache_hash
         self.batch_size = batch_size
@@ -30,13 +31,15 @@ class AsyncBatchedProxy():
             maxsize=max_queue_size if max_queue_size else 2*batch_size)
 
     async def __call__(self, *args):
-        arg_hash = (self.func, self.cache.cache_hash(args))
-        if arg_hash in self.cache:
-            return self.cache[arg_hash]
+        if self.with_cache:
+            arg_hash = self.cache.cache_hash(args)
+            if arg_hash in self.cache:
+                return self.cache[arg_hash]
         fut = asyncio.Future()
         await self.queue.put((time.time(), args, fut))
         res = await fut
-        self.cache[arg_hash] = res
+        if self.with_cache:
+            self.cache[arg_hash] = res
         return res
 
     async def run(self):

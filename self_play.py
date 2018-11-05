@@ -21,7 +21,7 @@ class SelfPlay(object):
         self.played_games = []
         self.params = params
         self.nn = nn
-        self.player_change_callback = lambda sp_self, player: None
+        self.player_change_callback = lambda player: None
 
     async def get_next_move(self, root_node, nb_mcts_searches, temperature, dirichlet):
         visit_counts = await mcts.UCT_search(root_node, nb_mcts_searches, self.nn, 
@@ -210,7 +210,8 @@ def _worker_init(hdf_file_name, devices, lock, generations, nn_class, params, pl
     _env_.nn_wrapper = NeuralNetWrapper(None, _env_.params)
     _env_.nnet = AsyncBatchedProxy(_env_.nn_wrapper, batch_size=sp_params.nn_batch_size, 
                                    timeout=sp_params.nn_batch_timeout, 
-                                   batch_builder=sp_params.nn_batch_builder)
+                                   batch_builder=sp_params.nn_batch_builder,
+                                   cache_size = 0 if _env_.compare_models else 400000)
     _env_.tasks = []
     fut = asyncio.ensure_future(_env_.nnet.run(), loop=loop)
     fut.add_done_callback(_fut_cb) # re-raise exception if occured in nnet
@@ -229,11 +230,8 @@ def _worker_run(games_idxs):
     from utils.utils import write_to_hdf
     import time
     loop = asyncio.get_event_loop()
-    #loop.set_debug(True)
 
     tick = time.time()
-
-
     try:
         _env_.sp = self_play.SelfPlay(_env_.nnet, _env_.params)
         _env_.sp.set_player_change_callback(_player_change_callback)
@@ -241,7 +239,6 @@ def _worker_run(games_idxs):
     except Exception as e:
         print(e, flush=True)
         raise e
-
     tack = time.time()
 
     df = _env_.sp.get_datasets(_env_.generations, not _env_.compare_models)
@@ -302,6 +299,7 @@ def compute_elo(elo_params, params, generations, elos):
     lock = mp.Lock()
     params = copy.deepcopy(params)
     params[0].self_play.merge(elo_params.self_play_override)
+    params[1].self_play.merge(elo_params.self_play_override)
     devices = params[0].self_play.pytorch_devices
     nn_classes = list(p.nn.model_class for p in params)
     with mp.Pool(nw, initializer=_worker_init, initargs=(elo_params.hdf_file, devices, lock, generations, nn_classes, params)) as pool:
