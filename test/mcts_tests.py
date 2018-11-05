@@ -1,9 +1,8 @@
 import unittest
 import asyncio
 import numpy as np
-from mcts import UCT_search_async, create_root_uct_node, print_mcts_tree
+from mcts import UCT_search, create_root_uct_node, print_mcts_tree
 from .unittest_utils import async_test
-from utils import memoize
 
 
 class MCTSTestCase(unittest.TestCase):
@@ -23,7 +22,7 @@ class MCTSTestCase(unittest.TestCase):
         tick = time.time()
 
         loop = asyncio.get_event_loop()
-        policy = UCT_search(root_node, num_reads, nn, loop=loop, max_pending_evals=10)
+        policy = loop.run_until_complete(asyncio.ensure_future(UCT_search(root_node, num_reads, nn, max_pending_evals=10)))
         loop.close()
         
         print(policy.astype(int))
