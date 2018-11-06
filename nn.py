@@ -245,6 +245,9 @@ class GenerationLrScheduler(object):
         assert lr is not None
         return lr
 
+    def __repr__(self):
+        return f"GenerationLrScheduler({self.schedule})"
+
 
 def save_checkpoint(filename, model, optimizer, last_batch_idx):
     state = {'last_batch_idx': last_batch_idx, 'model_dict': model.state_dict(),
