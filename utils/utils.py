@@ -67,14 +67,19 @@ def _reshape(X, features_shape):
         return X.reshape((-1, *features_shape))
 
 class HDFStoreDataset(data.Dataset):
-    def __init__(self, hdf_file, key, train, features_shape=None, where=None, max_samples=500000):
+    def __init__(self, hdf_file, key, train, features_shape=None, where=None, max_samples=int(1e12), pos_average=False):
         super(HDFStoreDataset, self).__init__()
         with pd.HDFStore(hdf_file, "r") as hdf_store:
             df = hdf_store.select(key, where)
             df.sort_index(ascending=False, inplace=True)
             df = df[:max_samples][df.training == (1 if train else -1)]
             cols = df.columns
-            self.features = _reshape(df[list(c for c in cols if c.startswith("x_"))].values.astype(np.float32), features_shape)
+            features_cols = list(c for c in cols if c.startswith("x_"))
+            
+            if pos_average:
+                df = df.groupby(features_cols).mean().reset_index()
+
+            self.features = _reshape(df[features_cols].values.astype(np.float32), features_shape)
             self.policy = df[list(c for c in cols if c.startswith("pi_"))].values.astype(np.float32)
             self.value = df.z.values.astype(np.float32)
             #self.value = 0.5 * (df.z.values.astype(np.float32) + df.q_value.values.astype(np.float32))
