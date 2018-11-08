@@ -184,9 +184,9 @@ async def handler(websocket, path):
     logger.info("Exit handler")
 
 
-def start_server(port):
-    server = websockets.serve(handler, 'localhost', port)
-    print("Running on ws://127.0.0.1:{}".format(port))
+def start_server(ip, port):
+    server = websockets.serve(handler, ip, port)
+    print(f"Running on ws://{ip}:{port}")
     asyncio.get_event_loop().run_until_complete(server)
     asyncio.get_event_loop().run_forever()
 
@@ -198,6 +198,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Start agent to play Dots and Boxes')
     parser.add_argument('--verbose', '-v', action='count', default=0, help='Verbose output')
     parser.add_argument('--quiet', '-q', action='count', default=0, help='Quiet output')
+    parser.add_argument('ip', metavar='IP', type=str, help='IP to use for server')
     parser.add_argument('port', metavar='PORT', type=int, help='Port to use for server')
     args = parser.parse_args(argv)
 
@@ -205,7 +206,7 @@ def main(argv=None):
     logger.addHandler(logging.StreamHandler(sys.stdout))
 
     agentclass = DotsAndBoxesAgent
-    start_server(args.port)
+    start_server(args.ip, args.port)
 
 
 if __name__ == "__main__":

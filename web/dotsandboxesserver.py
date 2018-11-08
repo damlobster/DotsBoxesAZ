@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+
+#./dotsandboxesserver.py 8080 &
+
 """
 dotsandboxesserver.py
 
