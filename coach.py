@@ -8,12 +8,15 @@ from functools import partial
 import configuration
 params = None
 
-def _launch_in_process(func, *args):
-    with mp.Pool(processes = 1) as pool:
-        res = pool.starmap(func, [args])
-        return res[0]
-
 def selfplay(params, generation):
+    """Run a batch of selfplay games.
+    All the parameters are specified in the params argument (see configuration.py for details).
+    
+    Arguments:
+        params {DotDict} -- dictionnary holding the parameters of the selfplay, MCTS, neural net
+        generation {int} -- the generation for which the games will be generated
+    """
+
     import time
     from self_play import generate_games
 
@@ -28,6 +31,18 @@ def selfplay(params, generation):
 
 
 def train_nn(params, generation, where, writer):
+    """Train the neural net with the selfplay generated game positions
+    
+    Arguments:
+        params {DotDict} -- the parameters
+        generation {int} -- the generation for which we train the nn
+        where {str} -- a HDFStore compatible query, eg. 'generation>=4 and generation<=10'
+        writer {tensorboardx.SummaryWriter} -- where to write the training curves
+    
+    Returns:
+        [int] -- the last training batch index
+    """
+
     import numpy as np
     import pandas as pd
     import time
@@ -53,8 +68,9 @@ def train_nn(params, generation, where, writer):
         else:
             print("No new training data! Is it normal?", flush=True)
 
-    train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
-    val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, features_shape=params.game.clazz.FEATURES_SHAPE, where=where)
+    avg = params.nn.train_params.pos_average
+    train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, features_shape=params.game.clazz.FEATURES_SHAPE, where=where, pos_average=avg)
+    val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, features_shape=params.game.clazz.FEATURES_SHAPE, where=where, pos_average=avg)
     model = params.nn.model_class(params)
     wrapper = NeuralNetWrapper(model, params)
 
@@ -71,6 +87,17 @@ def train_nn(params, generation, where, writer):
 
 
 def compute_elo(elo_params, player0, player1):
+    """Evaluate the relative performance of two players by making them player against each other.
+    
+    Arguments:
+        elo_params {DotDict} -- the paramters of the selfplay for computing Elo score
+        player0 {(DotDict, int, int)} -- a tuple containing: the parameters of the 1st player, its the generation and its elo old score
+        player1 {(DotDict, int, int)} -- same as 1st player
+    
+    Returns:
+        [(int, int)] -- the new Elo scores of the players
+    """
+
     import time
     from self_play import compute_elo as elo
 
@@ -85,6 +112,22 @@ def compute_elo(elo_params, player0, player1):
     return elo0, elo1
 
 def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, start_train=False):
+    """Reinforcement learing loop.
+    1. Selfplay with last generation network
+    2. Train the network with the data generated so far
+    3. Compute Elo score
+    4. Increment generation and go to 1.
+    
+    Arguments:
+        params {DotDict} -- the parameters to use
+        from_generation {int} -- starting generation
+        to_generation {int} -- stop at this generation (included)
+    
+    Keyword Arguments:
+        last_model_elo {int} -- the Elo score of the last model (new model start with this value) (default: {1200})
+        start_train {bool} -- if true, skip the selfplay for the first generation (default: {False})
+    """
+
     writer = SummaryWriter(params.tensorboard_log)
     cfg = json.dumps(params, indent=4, default=lambda o: str(o)).replace(" ", "&nbsp;").replace("\n", "  \n")
     writer.add_text("params", cfg)
@@ -106,6 +149,7 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
 
         from_generation += 1
     writer.close()
+
 
 def main(args):
     global params
