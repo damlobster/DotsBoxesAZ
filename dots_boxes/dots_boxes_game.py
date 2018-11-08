@@ -15,7 +15,7 @@ class BoxesState(GameState):
 
     @staticmethod
     def init_static_fields(dims):
-        BoxesState.BOARD_DIM = dims
+        BoxesState.BOARD_DIM = dims[0]
         BoxesState.FEATURES_SHAPE = (3, \
             BoxesState.BOARD_DIM[0]+1, BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_ACTIONS = 2 * \

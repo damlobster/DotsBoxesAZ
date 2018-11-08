@@ -1,4 +1,4 @@
-class GameState(object):
+class GameState():
     __slots__ = []
 
     @staticmethod

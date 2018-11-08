@@ -9,7 +9,7 @@ from nn import ResNetZero, GenerationLrScheduler
 import logging
 import logging.config
 
-BoxesState.init_static_fields(dims=(3, 3))
+#BoxesState.init_static_fields(dims=(3, 3))
 
 
 simple = DotDict({
@@ -18,7 +18,7 @@ simple = DotDict({
     "tensorboard_log": "data/tboard/_exp_",
     "game": {
         "clazz": BoxesState,
-        "init": partial(BoxesState.init_static_fields, ((3,3),)),
+        "init": partial(BoxesState.init_static_fields, 3, 3),
     },
     "self_play": {
         "num_games": 4000,
