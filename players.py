@@ -1,5 +1,6 @@
 import logging
 logging.basicConfig(level=logging.INFO)
+import math 
 from functools import partial
 import asyncio
 
@@ -36,6 +37,7 @@ class AZPlayer(mp.Process):
         asyncio.set_event_loop(loop)
 
         nn_wrapper = NeuralNetWrapper(None, self.params)
+
         nn = AsyncBatchedProxy(nn_wrapper, batch_size=params.nn_batch_size,
                                     timeout=params.nn_batch_timeout,
                                     batch_builder=params.nn_batch_builder)
@@ -66,6 +68,3 @@ class AZPlayer(mp.Process):
         nn_task.cancel()
         loop.run_until_complete(asyncio.sleep(0.1))
         loop.close()
-
-
-def calc_elo_score()
