@@ -107,9 +107,9 @@ def compute_elo(elo_params, player0, player1):
     tick = time.time()
     print("-"*70)
     print("Computation of Elo ratings...")
-    elo0, elo1 = elo(elo_params, [params0, params1], [gen0, gen1], (elo0, elo1))
+    elo0, elo1, wins = elo(elo_params, [params0, params1], [gen0, gen1], (elo0, elo1))
     print(f"Elo ratings computation finished in {time.time()-tick:.0f} sec.!", flush=True)
-    return elo0, elo1
+    return elo0, elo1, wins
 
 def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, start_train=False):
     """Reinforcement learing loop.
@@ -144,8 +144,9 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
         if from_generation > 0:
             player0 = (params, from_generation-1, last_model_elo)
             player1 = (params, from_generation, last_model_elo)
-            _, last_model_elo = compute_elo(params.elo, player0, player1)
+            _, last_model_elo, wins = compute_elo(params.elo, player0, player1)
             writer.add_scalar('elo', last_model_elo, last_batch_idx)
+            writer.add_scalar('wins', wins, last_batch_idx)
 
         from_generation += 1
     writer.close()

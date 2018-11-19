@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
+import math
 
 from utils.utils import DotDict, elo_rating2
 import mcts
@@ -47,8 +48,10 @@ class SelfPlay(object):
             if i in params.self_play.mcts.temperature:
                 temperature = params.self_play.mcts.temperature[i]
 
-            move = await self.get_next_move(root_node, params.self_play.mcts.mcts_num_read, 
-                                            temperature, params.self_play.noise)
+            nb_valid_moves = len(root_node.game_state.get_valid_moves(as_indices=True))
+            searches = min(4*math.factorial(nb_valid_moves), params.self_play.mcts.mcts_num_read)
+            move = await self.get_next_move(root_node, searches, temperature, params.self_play.noise)
+            
             moves_sequence.append(root_node)
             root_node = mcts.init_mcts_tree(root_node, move, reuse_tree=params.self_play.reuse_mcts_tree)
 
@@ -325,4 +328,4 @@ def compute_elo(elo_params, params, generations, elos):
     print(f"{params[0].nn.model_class.__name__} generation {generations[0]}: wins={n0}, elo={elos[0]} -> {elo0}")
     print(f"{params[1].nn.model_class.__name__} generation {generations[1]}: wins={n1}, elo={elos[1]} -> {elo1}")
     
-    return elo0, elo1
+    return elo0, elo1, (n1-n0)/len(winners)
