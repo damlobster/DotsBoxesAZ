@@ -79,7 +79,7 @@ resnet20 = DotDict({
         "init": partial(BoxesState.init_static_fields, ((3, 3),)),
     },
     "self_play": {
-        "num_games": 4000,
+        "num_games": 1000,
         "n_workers": 12,
         "games_per_workers": 10,
         "reuse_mcts_tree": True,
@@ -89,10 +89,10 @@ resnet20 = DotDict({
         "nn_batch_builder": nn_batch_builder,
         "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
         "mcts": {
-            "mcts_num_read": 200,
-            "mcts_cpuct": 3.0,
+            "mcts_num_read": 800,
+            "mcts_cpuct": 4.0,
             # from 8th move we greedly take move with most visit count
-            "temperature": {0: 1.0, 8: 1e-50},
+            "temperature": {0: 1.0}, #, 15: 1e-50},
             "max_async_searches": 64,
         }
     },
@@ -115,11 +115,11 @@ resnet20 = DotDict({
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "pos_average": True,
-            "nb_epochs": 5,
+            "nb_epochs": 1,
             "train_split": 0.9,
             "train_batch_size": 2048,
             "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 5:5e-4, 10:1e-4, 15:5e-5}),
+            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:5e-4, 40:1e-4, 60:5e-5}),
             "lr": None,
             "adam_params": {
                 "betas": (0.9, 0.999),
