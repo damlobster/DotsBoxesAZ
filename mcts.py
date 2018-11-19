@@ -86,12 +86,12 @@ class UCTNode():
     def select_leaf(self):
         current = self
         while current.is_expanded and not current.is_terminal:
-            current.number_visits += 1
-            current.total_value -= 1
+            #current.number_visits += 1
+            current.total_value -= 2
             best_move = current.best_child()
             current = current.children[best_move]
-        current.number_visits += 1
-        current.total_value -= 1
+        #current.number_visits += 1
+        current.total_value -= 2
         return current
     
     def expand(self, child_priors):
@@ -104,7 +104,8 @@ class UCTNode():
         v = value_estimate
         while not isinstance(current, TreeRoot):
             v = v if current.game_state.player == current.game_state.next_player else -v
-            current.total_value += v + 1
+            current.number_visits += 1
+            current.total_value += v + 2
             current = current.parent
         
         if tree_stats_enabled:
