@@ -142,7 +142,7 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
         print(f"Last training batch idx= {last_batch_idx}", flush=True)
 
         if from_generation > 0:
-            player0 = (params, from_generation-1, last_model_elo)
+            player0 = (params, max(0, from_generation-3), last_model_elo)
             player1 = (params, from_generation, last_model_elo)
             _, last_model_elo, wins = compute_elo(params.elo, player0, player1)
             writer.add_scalar('elo', last_model_elo, last_batch_idx)
