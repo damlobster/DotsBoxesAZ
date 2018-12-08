@@ -10,7 +10,6 @@ from torch.nn import functional as F
 import torch.utils.data as data
 import pandas as pd
 
-import utils
 from game import GameState
 
 
@@ -24,6 +23,7 @@ class ResNet(nn.Module):
         )
 
     def forward(self, x):
+        logger.debug("Resnet in: %s", x.size())
         x = self.conv0(x)
         x = F.relu(self.bn0(x))
         x = self.resblocks(x)
@@ -39,6 +39,7 @@ class ResBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(nb_channels)
 
     def forward(self, x):
+        logger.debug("Resblock in: %s", x.size())
         _x = self.conv1(x)
         _x = F.relu(self.bn1(_x))
         _x = self.bn2(self.conv2(_x))
@@ -65,6 +66,7 @@ class PolicyHead(nn.Module):
         self.fc = nn.Linear(fc_in, nb_actions)
 
     def forward(self, x):
+        logger.debug("PolicyHead in: %s", x.size())
         x = self.conv0(x)
         x = F.relu(self.bn0(x))
         x = self.fc(x.view(x.size(0), -1))
@@ -81,6 +83,7 @@ class ValueHead(nn.Module):
         self.fc1 = nn.Linear(fc_inner, 1)
 
     def forward(self, x):
+        logger.debug("ValueHead in: %s", x.size())
         x = self.conv0(x)
         x = F.relu(self.bn0(x))
         x = F.relu(self.fc0(x.view(x.size(0), -1)))
@@ -126,6 +129,7 @@ class AlphaZeroLoss(nn.Module):
         loss_pi = -(pi * p).sum(1).mean()
         return loss_v + loss_pi, (loss_pi.item(), loss_v.item()) #loss:variable, (loss_v:float, loss_pi:float)
 
+
 def _err_cb(fut):
     if fut.exception():
         logger.error(fut.exception())
@@ -165,10 +169,11 @@ class NeuralNetWrapper():
         #self.model = nn.DataParallel(self.model, device_ids=[1, 0])
         params = self.params.nn.train_params
 
+        drop_last = False
         train_data = data.DataLoader(
-            train_dataset, params.train_batch_size, shuffle=True, drop_last=True)
+            train_dataset, params.train_batch_size, shuffle=True, drop_last=drop_last)
         validation_data = data.DataLoader(
-            val_dataset, params.val_batch_size) if val_dataset is not None else None
+            val_dataset, params.val_batch_size, shuffle=False, drop_last=drop_last) if val_dataset is not None else None
 
         criterion = AlphaZeroLoss()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, **params.adam_params)
@@ -183,24 +188,31 @@ class NeuralNetWrapper():
 
             self.model.train(True)
             tr_loss = 0
+            tr_n_batches = 0
             for boards, pi, z in train_data:
-                batch_i += 1
+
                 # Transfer to GPU
                 boards = boards.to(self.device)
                 pi = pi.requires_grad_(True).to(self.device)
                 z = z.requires_grad_(True).to(self.device)
 
-                p, v = self.model(boards)
-                loss, (loss_pi, loss_v) = criterion(p, v, pi, z)
-                #loss = loss/n_batches
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                boards, pi, z = params.symmetries(boards, pi, z)
 
-                loss_v, loss_pi = loss_v, loss_pi
-                tr_loss += loss_pi + loss_v
-                # write scalars to tensorboard
-                writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
+                for i in range(len(boards)):
+                    batch_i += 1
+                    tr_n_batches += 1
+
+                    p, v = self.model(boards[i])
+                    loss, (loss_pi, loss_v) = criterion(p, v, pi[i], z[i])
+                    #loss = loss/n_batches
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                    loss_v, loss_pi = loss_v, loss_pi
+                    tr_loss += loss_pi + loss_v
+                    # write scalars to tensorboard
+                    writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
             
             val_loss = 0.0
             loss_v = 0.0
@@ -208,25 +220,28 @@ class NeuralNetWrapper():
             if val_dataset:
                 self.model.train(False)
                 loss_pi, loss_v = 0.0, 0.0
+                val_n_batches = 0
                 for boards, pi, z in validation_data:
                     # Transfer to GPU
                     boards = boards.to(self.device)
                     pi = pi.to(self.device)
                     z = z.to(self.device)
 
-                    p, v = self.model(boards)
-                    _, (_loss_pi, _loss_v) = criterion(p, v, pi, z)
-                    loss_v += _loss_v
-                    loss_pi += _loss_pi
+                    boards, pi, z = params.symmetries(boards, pi, z)
 
-                # get eval loss average
-                n_batches = len(validation_data)
-                loss_v /= n_batches
-                loss_pi /= n_batches
+                    for i in range(len(boards)):
+                        val_n_batches += 1
+                        p, v = self.model(boards[i])
+                        _, (_loss_pi, _loss_v) = criterion(p, v, pi[i], z[i])
+                        loss_v += _loss_v
+                        loss_pi += _loss_pi
+
+                loss_v /= val_n_batches
+                loss_pi /= val_n_batches
                 val_loss = loss_v + loss_pi
                 writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i) #, walltime=batch_i)
 
-            print(f"Epoch {epoch}, train loss= {tr_loss/len(train_data):5f}, validation loss= {val_loss:5f}", flush=True)
+            print(f"Epoch {epoch}, train loss= {tr_loss/tr_n_batches:5f}, validation loss= {val_loss:5f}", flush=True)
 
         filename = self.params.nn.chkpts_filename.format(generation)
         save_checkpoint(filename, self.model, optimizer, batch_i)
