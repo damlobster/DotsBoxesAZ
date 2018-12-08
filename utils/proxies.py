@@ -1,19 +1,21 @@
-import logging
-logger = logging.getLogger(__name__)
-
-import asyncio
-from async_timeout import timeout
-import multiprocessing as mp
-import numpy as np
-import os
-import sys
-import time
-from functools import partial
 import pylru
+from functools import partial
+import time
+import sys
+import os
+import numpy as np
+import multiprocessing as mp
+from async_timeout import timeout
+import asyncio
+import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 
 def default_batch_builder(states_batch):
     return np.concatenate(tuple(gs[0].get_features() for gs in states_batch))[np.newaxis, :]
+
 
 class AsyncBatchedProxy():
     def __init__(self, func, batch_size, timeout=None, batch_builder=None, max_queue_size=None,
@@ -56,7 +58,8 @@ class AsyncBatchedProxy():
                 except asyncio.TimeoutError as e:
                     pass
 
-                call_func = time.time() - ts[0] > self.timeout if len(futs)>0 else False
+                call_func = time.time() - \
+                    ts[0] > self.timeout if len(futs) > 0 else False
                 if call_func:
                     n = min(len(ts), self.batch_size)
                     logger.debug("batch size=%d", n)
@@ -72,57 +75,85 @@ class AsyncBatchedProxy():
                     ts, args, futs = ts[n:], args[n:], futs[n:]
 
         except asyncio.CancelledError:
-            return # silently exit the worker
+            return  # silently exit the worker
 
 
-"""
-def pipe_proxy_init():
-    child, parent = mp.connection.Pipe()
-    pipe_proxy.child_pipe = child
-    pipe_proxy.parent_pipe = parent
-    asyncio.set_event_loop(asyncio.new_event_loop())
+class PipeProxyClient:
+    def __init__(self, id, conn):
+        super().__init__()
+        self.id = id
+        self.conn = conn
+        self.pending = {}
+        self.counter = 0
+        self.loop = None
 
-def _pipe_proxy_get_parent(ignored):
-    import time
-    time.sleep(0.01)
-    return pipe_proxy.parent_pipe
-
-async def pipe_proxy(*args):
-    print("ppc 1", flush=True) #!!!!
-    pipe = pipe_proxy.child_pipe
-    if pipe.closed:
-        raise ConnectionError("Pipe already closed for pid: %d", pid)
-    pipe.send(args)
-    print("ppc 2", flush=True) #!!!!
-    await asyncio.get_event_loop().run_in_executor(None, pipe.poll, None)
-    print("ppc 3", flush=True) #!!!!
-    return pipe.recv()
-
-class PipedProxy():
-    def __init__(self, func, loop, mp_pool):
-        self.func = func
-        self.my_pipes = set(mp_pool.map(_pipe_proxy_get_parent, range(mp_pool._processes)))
-        print(self.my_pipes, flush=True)
+    def set_asyncio_loop(self, loop):
         self.loop = loop
 
+    async def __call__(self, *args):
+        self.counter = (self.counter + 1) % 5196
+        reqn = self.counter
+        self.conn.send(self.id, reqn, args)
+        fut = asyncio.Future(loop=self.loop)
+        self.pending[reqn] = fut
+        return await fut
+
     async def run(self):
-        def send(pipe, fut):
-            print("ppr send", flush=True) #!!!!    
-            pipe.send(fut.result())
-        print("ppr 1", flush=True) #!!!!
         try:
-            while self.my_pipes:
-                ready_list = await self.loop.run_in_executor(None, mp.connection.wait, self.my_pipes)
-                print("ppr 2", flush=True) #!!!!
-                for pipe in ready_list:
-                    try:
-                        print("ppr 3", flush=True) #!!!!
-                        args = pipe.recv()
-                        fut = asyncio.ensure_future(self.func(*args), loop=self.loop)
-                        print("ppr 4", flush=True) #!!!!
-                        fut.add_done_callback(partial(send, pipe))
-                    except EOFError as e:
-                        self.my_pipes.remove(pipe)
-        except asyncio.CancelledError:
-            return #silently exit the worker
-"""
+            while True:
+                reqn, result = await self.loop.run_in_executor(None, self.conn.recv())
+                self.pending[reqn].set_result(result)
+                del self.pending[reqn]
+        except Exception as e:
+            return  # silently exit the worker
+
+
+class PipeProxyServer:
+    def __init__(self, func, batch_size=64, timeout=0.1, cache_size=int(1e6), cache_hash=lambda args: args[0].get_hash()):
+        super().__init__()
+        self.func = func
+        self.id_gen = 0
+        self.connections = {}
+        self.buffer = []
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.with_cache = cache_size > 0
+        if self.with_cache:
+            self.cache = pylru.lrucache(cache_size)
+            self.cache.cache_hash = cache_hash
+
+    def create_client(self):
+        self.id_gen += 1
+        id = self.id_gen
+        me, you = mp.Pipe(True)
+        self.connections[id] = me
+        return PipeProxyClient(id, you)
+
+    def run(self):
+        last_req_t = time.time()
+        while self.running:
+            ready = mp.connection.wait(self.connections.keys())
+            for pipe in ready:
+                try:
+
+                    client_id, seq, args = pipe.recv()
+                    if self.with_cache:
+                        arg_hash = self.cache.cache_hash(args)
+                        if arg_hash in self.cache:
+                            self.connections[id].send(
+                                seq, self.cache[arg_hash])
+                    else:
+                        self.buffer.append((client_id, seq, args))
+
+                except EOFError as e:
+                    raise e
+
+            buffer_full = len(self.buffer) >= self.batch_size
+            if buffer_full or (len(self.buffer) > 0 and last_req_t + self.timeout <= time.time()):
+                client_ids, seqs, args = zip(self.buffer)
+                self.buffer = []
+
+                results = self.func(args)
+
+                for i, id in enumerate(client_ids):
+                    self.connections[id].send(seqs[i], results[i])
