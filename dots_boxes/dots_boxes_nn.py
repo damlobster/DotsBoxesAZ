@@ -7,6 +7,63 @@ import torch.nn.functional as F
  
 N_CH = 256
 
+class SymmetriesGenerator(nn.Module):
+    def __init__(self, rotations=True):
+        super(SymmetriesGenerator, self).__init__()
+        self.rotations = rotations
+
+    @torch.no_grad()
+    def forward(self, boards, policies, values):
+        def _symmerty(t, dims):
+            h = torch.flip(t[:, 0, :, :-1], dims)
+            h = torch.cat((h, t[:, 0, :, -1].unsqueeze(2)), 2)
+            
+            v = torch.flip(t[:, 1, :-1, :], dims)
+            v = torch.cat((v, t[:, 1, -1, :].unsqueeze(1)), 1)
+
+            if t.size()[1] == 3:
+                s = t[:, 2, :, :]
+                result = torch.cat((h.unsqueeze(1),v.unsqueeze(1), s.unsqueeze(1)), 1)
+            else:
+                result = torch.cat((h.unsqueeze(1),v.unsqueeze(1)), 1)
+            return result
+
+        def _rotate(t):
+            h = t[:, 1, :-1, :].transpose(1,2)
+            h = torch.cat((h, t[:, 1, -1, :].unsqueeze(2)), 2)
+            v = t[:, 0, :, :-1].transpose(1,2)
+            v = torch.cat((v, t[:, 0, :, -1].unsqueeze(1)), 1)
+            if t.size()[1] == 3:
+                s = t[:, 2, :, :]
+                return torch.cat((h.unsqueeze(1),v.unsqueeze(1), s.unsqueeze(1)), 1)
+            else:
+                return torch.cat((h.unsqueeze(1),v.unsqueeze(1)), 1)
+
+        policies = policies.reshape(-1, 2, *boards.size()[-2:])
+        results = [(boards, policies, values)]
+        results.append((_symmerty(boards, [1]), _symmerty(policies, [1]), values))
+        results.append((_symmerty(boards, [2]), _symmerty(policies, [2]), values))
+        results.append((_symmerty(boards, [1, 2]), _symmerty(policies, [1, 2]), values))
+
+        if self.rotations:
+            results += list((_rotate(f), _rotate(p), v) for f, p, v in results)
+        
+
+        batch_size = boards.size()[0]
+        boards, policies, values = zip(*results)
+
+        boards = torch.cat(boards)
+        policies = torch.cat(policies, 0)
+        policies = policies.reshape(policies.size()[0], -1)
+        values = torch.cat(values)
+
+        perm = torch.randperm(boards.size()[0], device=values.device)
+        boards = boards[perm].split(batch_size)
+        policies = policies[perm].split(batch_size)
+        values = values[perm].split(batch_size)
+        return boards, policies, values
+
+
 class SimpleNN(nn.Module):
     def __init__(self, params=None):
         super(SimpleNN, self).__init__()
