@@ -30,9 +30,18 @@ class SelfPlay(object):
                                              self.params.self_play.mcts.max_async_searches, dirichlet)
         # apply temperature
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
-        probs = 0.9999999*probs / probs.sum() # TODO: p/p.sum() is sometimes > 1
-        sampled = np.random.multinomial(1, np.append(probs, 0), 1)
-        move = np.argmax(sampled[:, :-1])
+        probs = probs / probs.sum() # TODO: p/p.sum() is sometimes > 1
+        move = np.random.choice(probs.shape[0], 1, p=probs)[0]
+        if(logger.isEnabledFor(logging.DEBUG)):
+            msg = []
+            for i in range(visit_counts.shape[0]):
+                if round(probs[i], 3) > 0:
+                    o = '\033[92m' if i==move else "\033[93m" if probs[move]<probs[i] else "\033[94m" if probs[i]>0.1 else ""
+                    c = '\033[0m' if i==move or probs[i]>0 else ""
+                    msg.append(f"{o}{visit_counts[i]}:{probs[i]:.3f}{c}")
+
+            logger.debug(" ".join(msg))
+            logger.debug("move= %s", move)
         return move
 
     async def play_game(self, game_state, idx):
@@ -253,7 +262,7 @@ def _worker_run(games_idxs):
 
     tock = time.time()
 
-    logger.info("Worker %d played %d games (%d samples) in %.0fs (save=%.3fs)", 
+    logger.info("Worker %s played %d games (%d samples) in %.0fs (save=%.3fs)", 
         _env_.name, len(games_idxs), len(df.index), tock-tick, tock-tack)
 
 
@@ -328,4 +337,4 @@ def compute_elo(elo_params, params, generations, elos):
     print(f"{params[0].nn.model_class.__name__} generation {generations[0]}: wins={n0}, elo={elos[0]} -> {elo0}")
     print(f"{params[1].nn.model_class.__name__} generation {generations[1]}: wins={n1}, elo={elos[1]} -> {elo1}")
     
-    return elo0, elo1, (n1-n0)/len(winners)
+    return elo0, elo1, n1/len(winners)
