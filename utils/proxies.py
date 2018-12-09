@@ -122,6 +122,8 @@ class PipeProxyServer:
             self.cache = pylru.lrucache(cache_size)
             self.cache.cache_hash = cache_hash
 
+        self.last_req_t = time.time()
+
     def create_client(self):
         self.id_gen += 1
         id = self.id_gen
@@ -129,10 +131,9 @@ class PipeProxyServer:
         self.connections[id] = me
         return PipeProxyClient(id, you)
 
-    def run(self):
-        last_req_t = time.time()
-        while self.running:
-            ready = mp.connection.wait(self.connections.keys())
+    def handle_requests(self):
+        ready = mp.connection.wait(self.connections.values(), 0)
+        if len(ready) > 0:
             for pipe in ready:
                 try:
 
@@ -149,7 +150,8 @@ class PipeProxyServer:
                     raise e
 
             buffer_full = len(self.buffer) >= self.batch_size
-            if buffer_full or (len(self.buffer) > 0 and last_req_t + self.timeout <= time.time()):
+            if buffer_full or (len(self.buffer) > 0 and self.last_req_t + self.timeout <= time.time()):
+                self.last_req_t = time.time()
                 client_ids, seqs, args = zip(self.buffer)
                 self.buffer = []
 
