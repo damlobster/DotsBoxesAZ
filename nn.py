@@ -1,16 +1,14 @@
+from game import GameState
+import pandas as pd
+import torch.utils.data as data
+from torch.nn import functional as F
+from torch import nn
+import torch
+import os
+import numpy as np
+import asyncio
 import logging
 logger = logging.getLogger(__name__)
-
-import asyncio
-import numpy as np
-import os
-import torch
-from torch import nn
-from torch.nn import functional as F
-import torch.utils.data as data
-import pandas as pd
-
-from game import GameState
 
 
 class ResNet(nn.Module):
@@ -61,7 +59,7 @@ def _create_conv_layer(in_channels, out_channels, kernel_size):
 class PolicyHead(nn.Module):
     def __init__(self, in_channels, inner_channels, fc_in, nb_actions):
         super(PolicyHead, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1,1))
+        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1, 1))
         self.bn0 = nn.BatchNorm2d(inner_channels)
         self.fc = nn.Linear(fc_in, nb_actions)
 
@@ -77,7 +75,7 @@ class PolicyHead(nn.Module):
 class ValueHead(nn.Module):
     def __init__(self, in_channels, inner_channels, fc_in, fc_inner):
         super(ValueHead, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1,1))
+        self.conv0 = nn.Conv2d(in_channels, inner_channels, kernel_size=(1, 1))
         self.bn0 = nn.BatchNorm2d(inner_channels)
         self.fc0 = nn.Linear(fc_in, fc_inner)
         self.fc1 = nn.Linear(fc_inner, 1)
@@ -118,7 +116,9 @@ class ResNetZero(nn.Module):
         fn = filename.format(generation)
         logger.info("Model loaded from: %s", fn)
         self.load_state_dict(torch.load(fn, map_location='cpu')['model_dict'])
-        self.to(to_device)
+        if to_device is not None:
+            self.to(to_device)
+
 
 class AlphaZeroLoss(nn.Module):
     def __init__(self):
@@ -127,7 +127,8 @@ class AlphaZeroLoss(nn.Module):
     def forward(self, p, v, pi, z):
         loss_v = (z - v).pow(2).mean()
         loss_pi = -(pi * p).sum(1).mean()
-        return loss_v + loss_pi, (loss_pi.item(), loss_v.item()) #loss:variable, (loss_v:float, loss_pi:float)
+        # loss:variable, (loss_v:float, loss_pi:float)
+        return loss_v + loss_pi, (loss_pi.item(), loss_v.item())
 
 
 def _err_cb(fut):
@@ -135,12 +136,15 @@ def _err_cb(fut):
         logger.error(fut.exception())
         raise fut.exception()
 
+
 class NeuralNetWrapper():
     def __init__(self, model, params):
         self.params = params
         self.device = torch.device(
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device) if model is not None else None
+        self.optimizer = torch.optim.Adam(self.model.parameters(),
+                                          lr=params.lr, **params.adam_params)
 
     def set_model(self, model):
         self.model = model.to(self.device)
@@ -155,7 +159,8 @@ class NeuralNetWrapper():
     async def predict(self, X):
         loop = asyncio.get_event_loop()
         future = loop.run_in_executor(None, self.predict_sync, X)
-        future.add_done_callback(_err_cb) # to re-raise if exception occured in executor
+        # to re-raise if exception occured in executor
+        future.add_done_callback(_err_cb)
         return await future
 
     async def predict_from_game(self, game_state):
@@ -165,8 +170,7 @@ class NeuralNetWrapper():
         res = await self.predict(X)
         return res
 
-    def train(self, train_dataset, val_dataset, writer, generation):
-        #self.model = nn.DataParallel(self.model, device_ids=[1, 0])
+    def train(self, train_dataset, val_dataset, writer, generation, last_batch_idx=0):
         params = self.params.nn.train_params
 
         drop_last = False
@@ -176,11 +180,8 @@ class NeuralNetWrapper():
             val_dataset, params.val_batch_size, shuffle=False, drop_last=drop_last) if val_dataset is not None else None
 
         criterion = AlphaZeroLoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, **params.adam_params)
-        batch_i = 0
-        if generation > 0:
-            filename = self.params.nn.chkpts_filename.format(generation-1)
-            batch_i = load_checkpoint(filename, self.model, optimizer, self.device)
+
+        batch_i = last_batch_idx
 
         logger.warning(f"LR={params.lr}")
         writer.add_scalar("lr", params.lr, batch_i)
@@ -205,15 +206,16 @@ class NeuralNetWrapper():
                     p, v = self.model(boards[i])
                     loss, (loss_pi, loss_v) = criterion(p, v, pi[i], z[i])
                     #loss = loss/n_batches
-                    optimizer.zero_grad()
+                    self.optimizer.zero_grad()
                     loss.backward()
-                    optimizer.step()
+                    self.optimizer.step()
 
                     loss_v, loss_pi = loss_v, loss_pi
                     tr_loss += loss_pi + loss_v
                     # write scalars to tensorboard
-                    writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
-            
+                    writer.add_scalars('loss', {
+                                       'pi/train': loss_pi, 'v/train': loss_v, 'total/train': loss_pi+loss_v}, batch_i)
+
             val_loss = 0.0
             loss_v = 0.0
             loss_pi = 0.0
@@ -239,13 +241,42 @@ class NeuralNetWrapper():
                 loss_v /= val_n_batches
                 loss_pi /= val_n_batches
                 val_loss = loss_v + loss_pi
-                writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i) #, walltime=batch_i)
+                # , walltime=batch_i)
+                writer.add_scalars(
+                    'loss', {'pi/eval': loss_pi, 'v/eval': loss_v, 'total/eval': val_loss}, batch_i)
 
-            print(f"Epoch {epoch}, train loss= {tr_loss/tr_n_batches:5f}, validation loss= {val_loss:5f}", flush=True)
+            print(
+                f"Epoch {epoch}, train loss= {tr_loss/tr_n_batches:5f}, validation loss= {val_loss:5f}", flush=True)
 
         filename = self.params.nn.chkpts_filename.format(generation)
-        save_checkpoint(filename, self.model, optimizer, batch_i)
+        self.save_checkpoint(filename, batch_i)
         return batch_i
+
+    def save_checkpoint(self, filename, last_batch_idx):
+        state = {'last_batch_idx': last_batch_idx, 'model_dict': self.model.state_dict(),
+                 'optimizer_dict': self.optimizer.state_dict()}
+        torch.save(state, filename)
+
+    def load_checkpoint(self, filename):
+        start_epoch = 0
+        if os.path.isfile(filename):
+            logger.info(f"=> loading checkpoint '{filename}'")
+            checkpoint = torch.load(filename, map_location='cpu')
+            last_batch_idx = checkpoint['last_batch_idx']
+            self.model.load_state_dict(
+                checkpoint['model_dict'].to(self.device))
+            self.optimizer.load_state_dict(
+                checkpoint['optimizer_dict'].to(self.device))
+        else:
+            raise ValueError(f"=> no checkpoint found at '{filename}'")
+
+        for state in self.optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(self.device)
+
+        return last_batch_idx
+
 
 class GenerationLrScheduler(object):
     def __init__(self, schedule):
@@ -262,29 +293,3 @@ class GenerationLrScheduler(object):
 
     def __repr__(self):
         return f"GenerationLrScheduler({self.schedule})"
-
-
-def save_checkpoint(filename, model, optimizer, last_batch_idx):
-    state = {'last_batch_idx': last_batch_idx, 'model_dict': model.state_dict(),
-             'optimizer_dict': optimizer.state_dict()}
-    torch.save(state, filename)
-
-def load_checkpoint(filename, model, optimizer, to_device):
-    start_epoch = 0
-    if os.path.isfile(filename):
-        logger.info(f"=> loading checkpoint '{filename}'")
-        checkpoint = torch.load(filename, map_location='cpu')
-        last_batch_idx = checkpoint['last_batch_idx']
-        model.load_state_dict(checkpoint['model_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_dict'])
-    else:
-        raise ValueError(f"=> no checkpoint found at '{filename}'")
-
-
-    model.to(to_device)
-    for state in optimizer.state.values():
-        for k, v in state.items():
-            if isinstance(v, torch.Tensor):
-                state[k] = v.to(to_device)
-
-    return last_batch_idx

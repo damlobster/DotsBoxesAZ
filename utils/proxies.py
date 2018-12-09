@@ -105,6 +105,7 @@ class PipeProxyClient:
                 self.pending[reqn].set_result(result)
                 del self.pending[reqn]
         except Exception as e:
+            self.conn.close()
             return  # silently exit the worker
 
 
@@ -131,6 +132,11 @@ class PipeProxyServer:
         self.connections[id] = me
         return PipeProxyClient(id, you)
 
+    def close_connections(self):
+        if len(self.connections) > 0:
+            for conn in self.connections.values():
+                conn.close()
+
     def handle_requests(self):
         ready = mp.connection.wait(self.connections.values(), 0)
         if len(ready) > 0:
@@ -147,6 +153,7 @@ class PipeProxyServer:
                         self.buffer.append((client_id, seq, args))
 
                 except EOFError as e:
+                    pipe.close()
                     raise e
 
             buffer_full = len(self.buffer) >= self.batch_size

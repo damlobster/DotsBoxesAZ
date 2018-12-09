@@ -169,9 +169,6 @@ class Players:
     def add_player(self, generation, nn, params):
         self.players.append((generation, nn, params))
 
-    def switch_players(self):
-        self.players = list(reversed(self.players))
-
     def get_generation(self, id):
         return self.players[id if len(self.players) > 1 else 0][0]
 
@@ -180,6 +177,11 @@ class Players:
 
     def get_params(self, id):
         return self.players[id if len(self.players) > 1 else 0][2]
+
+    def dispose(self):
+        for _, nn, _ in self.players:
+            if isinstance(nn, PipeProxyClient):
+                nn.conn.close()
 
 
 class SelfPlayProcess(mp.Process):
@@ -202,6 +204,7 @@ class SelfPlayProcess(mp.Process):
         loop = asyncio.get_event_loop()
 
         try:
+
             sp = self_play.SelfPlay(self.players)
 
             for idxs in self.games_idxs:
@@ -219,19 +222,20 @@ class SelfPlayProcess(mp.Process):
                 logger.info("Worker %s played %d games (%d samples) in %.0fs (save=%.3fs)",
                             self.process_id, len(idxs), len(df.index), tock-tick, tock-tack)
 
+            self.players.dispose()
+
         except Exception as e:
             print(e, flush=True)
             raise e
 
 
-def generate_games(hdf_file_name, generation, model, n_games, params, n_workers=None, games_batch_size=10):
+def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=None, games_batch_size=10):
     nw = n_workers if n_workers else mp.cpu_count() - 1
     gpw = games_batch_size if games_batch_size else max(1, n_games//nw)
     games_idxs = np.array_split(np.arange(n_games), nw)
 
     lock = mp.Lock()
 
-    nn = NeuralNetWrapper(model, params)
     proxy = PipeProxyServer(lambda args: nn.predict_sync(
         torch.cat(list(g.get_features() for g in args[0]))))
 
@@ -249,8 +253,10 @@ def generate_games(hdf_file_name, generation, model, n_games, params, n_workers=
     while len(mp.connection.wait(processes, 0)) < nw:
         proxy.handle_requests()
 
+    proxy.close_connections()
 
-def compute_elo(elo_params, models, params, generations, elos):
+
+def compute_elo(elo_params, nns, params, generations, elos):
     nw = elo_params.n_workers if elo_params.n_workers else mp.cpu_count() - 2
     gpw = elo_params.games_per_workers if elo_params.games_per_workers else max(
         1, elo_params.n_games//nw)
@@ -262,21 +268,23 @@ def compute_elo(elo_params, models, params, generations, elos):
     params[0].self_play.merge(elo_params.self_play_override)
     params[1].self_play.merge(elo_params.self_play_override)
 
-    players = Players()
+    players = []
     proxies = []
-    for i in range(len(models)):
+    for i in range(len(nns)):
         p = params[i].self_play.merge(elo_params.self_play_override)
-        nn = NeuralNetWrapper(models[i], params[i])
-        proxy = PipeProxyServer(lambda args: nn.predict_sync(
+        proxy = PipeProxyServer(lambda args: nns[i].predict_sync(
             torch.cat(list(g.get_features() for g in args[0]))))
-        players.add_player(generations[i], proxy.create_client(), p)
+        players.append((generations[i], proxy, p))
         proxies.append(proxy)
 
     processes = []
     for process_id, idxs in enumerate(games_idxs):
-        players.switch_players()
+        players = list(reversed(players))
+        p = Players()
+        for gen, proxy, param in players:
+            p.add_player(gen, proxy.create_client(), param)
         process = SelfPlayProcess(process_id, np.array_split(idxs, len(idxs)/gpw),
-                                  elo_params.hdf_file, lock, players)
+                                  elo_params.hdf_file, lock, p)
         processes.append(process)
 
     for process in processes:
@@ -285,6 +293,9 @@ def compute_elo(elo_params, models, params, generations, elos):
     while len(mp.connection.wait(processes, 0)) < nw:
         proxies[0].handle_requests()
         proxies[1].handle_requests()
+
+    for proxy in proxies:
+        proxy.close_connections()
 
     # compute new elo score
     with pd.HDFStore(elo_params.hdf_file, mode="a") as store:
