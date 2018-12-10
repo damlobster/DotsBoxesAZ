@@ -143,8 +143,10 @@ class NeuralNetWrapper():
         self.device = torch.device(
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device) if model is not None else None
+        nn_params = params.nn.train_params
+        print(nn_params)
         self.optimizer = torch.optim.Adam(self.model.parameters(),
-                                          lr=params.lr, **params.adam_params)
+                                          lr=nn_params.lr, **nn_params.adam_params)
 
     def set_model(self, model):
         self.model = model.to(self.device)
@@ -183,8 +185,12 @@ class NeuralNetWrapper():
 
         batch_i = last_batch_idx
 
-        logger.warning(f"LR={params.lr}")
+        lr = params.lr_scheduler(generation)
+        for g in self.optimizer.param_groups:
+            g['lr'] = lr
+        logger.warning(f"LR={lr}")
         writer.add_scalar("lr", params.lr, batch_i)
+
         for epoch in range(params.nb_epochs):
 
             self.model.train(True)

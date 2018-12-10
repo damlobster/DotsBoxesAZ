@@ -87,24 +87,26 @@ class PipeProxyClient:
         self.counter = 0
         self.loop = None
 
-    def set_asyncio_loop(self, loop):
-        self.loop = loop
-
     async def __call__(self, *args):
         self.counter = (self.counter + 1) % 5196
         reqn = self.counter
-        self.conn.send(self.id, reqn, args)
+        logger.debug("pclient 0 %d %d", self.id, self.counter)  # !!!
+        self.conn.send((self.id, reqn, args))
         fut = asyncio.Future(loop=self.loop)
         self.pending[reqn] = fut
-        return await fut
+        res = await fut
+        logger.debug("pclient 1 %d %d", self.id, self.counter)  # !!
+        return res
 
-    async def run(self):
+    async def run(self, loop):
+        self.loop = loop
         try:
             while True:
-                reqn, result = await self.loop.run_in_executor(None, self.conn.recv())
-                self.pending[reqn].set_result(result)
-                del self.pending[reqn]
+                seq, result = await self.loop.run_in_executor(None, self.conn.recv)
+                self.pending[seq].set_result(result)
+                del self.pending[seq]
         except Exception as e:
+            logger.exception("pclient error")  # !!!
             self.conn.close()
             return  # silently exit the worker
 
@@ -134,11 +136,12 @@ class PipeProxyServer:
 
     def close_connections(self):
         if len(self.connections) > 0:
+            logger.debug("pserver close conn server side")  # !!!
             for conn in self.connections.values():
                 conn.close()
 
     def handle_requests(self):
-        ready = mp.connection.wait(self.connections.values(), 0)
+        ready = mp.connection.wait(self.connections.values(), 0.01)
         if len(ready) > 0:
             for pipe in ready:
                 try:
@@ -147,22 +150,31 @@ class PipeProxyServer:
                     if self.with_cache:
                         arg_hash = self.cache.cache_hash(args)
                         if arg_hash in self.cache:
-                            self.connections[id].send(
-                                seq, self.cache[arg_hash])
+                            logger.debug("pserver incache: %d %d %s", client_id,
+                                         seq, arg_hash)  # !!!
+                            pipe.send((seq, self.cache[arg_hash]))
+                        else:
+                            logger.debug("pserver not incache: %d %d %s", client_id,
+                                         seq, arg_hash)  # !!!
+                            self.buffer.append((client_id, seq, args))
                     else:
                         self.buffer.append((client_id, seq, args))
 
                 except EOFError as e:
+                    logger.exception("pserver error")  # !!!!!!!
                     pipe.close()
                     raise e
 
-            buffer_full = len(self.buffer) >= self.batch_size
-            if buffer_full or (len(self.buffer) > 0 and self.last_req_t + self.timeout <= time.time()):
-                self.last_req_t = time.time()
-                client_ids, seqs, args = zip(self.buffer)
-                self.buffer = []
+        buffer_full = len(self.buffer) >= self.batch_size
+        if buffer_full or (len(self.buffer) > 0 and self.last_req_t + self.timeout <= time.time()):
+            self.last_req_t = time.time()
+            client_ids, seqs, args = zip(*self.buffer)
+            self.buffer = []
 
-                results = self.func(args)
+            p, v = self.func(args)
 
-                for i, id in enumerate(client_ids):
-                    self.connections[id].send(seqs[i], results[i])
+            for i, id in enumerate(client_ids):
+                self.connections[id].send((seqs[i], (p[i], v[i])))
+                self.cache[self.cache.cache_hash(
+                    args[i])] = (p[i], v[i])
+                logger.debug("pserver func result %d %d", id, seqs[i])  # !!!

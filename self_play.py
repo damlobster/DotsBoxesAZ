@@ -11,7 +11,7 @@ import copy
 import random
 from functools import partial
 import torch
-import torch.multiprocessing as mp
+import multiprocessing as mp
 import configuration
 import logging
 logger = logging.getLogger(__name__)
@@ -175,6 +175,9 @@ class Players:
     def get_nn(self, id):
         return self.players[id if len(self.players) > 1 else 0][1]
 
+    def get_nns(self):
+        return list(p[1] for p in self.players)
+
     def get_params(self, id):
         return self.players[id if len(self.players) > 1 else 0][2]
 
@@ -204,6 +207,8 @@ class SelfPlayProcess(mp.Process):
         loop = asyncio.get_event_loop()
 
         try:
+            tasks = list(asyncio.ensure_future(nn.run(loop), loop=loop)
+                         for nn in self.players.get_nns())
 
             sp = self_play.SelfPlay(self.players)
 
@@ -222,6 +227,8 @@ class SelfPlayProcess(mp.Process):
                 logger.info("Worker %s played %d games (%d samples) in %.0fs (save=%.3fs)",
                             self.process_id, len(idxs), len(df.index), tock-tick, tock-tack)
 
+            for t in tasks:
+                t.cancel()
             self.players.dispose()
 
         except Exception as e:
@@ -237,12 +244,12 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
     lock = mp.Lock()
 
     proxy = PipeProxyServer(lambda args: nn.predict_sync(
-        torch.cat(list(g.get_features() for g in args[0]))))
+        params.self_play.nn_batch_builder(*args)))
 
     processes = []
     for process_id, idxs in enumerate(games_idxs):
         player = Players()
-        player.add_player(0, generation, proxy.create_client(), params)
+        player.add_player(generation, proxy.create_client(), params)
         process = SelfPlayProcess(process_id, np.array_split(idxs, len(idxs)/games_batch_size),
                                   hdf_file_name, lock, player)
         processes.append(process)
@@ -250,7 +257,8 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
     for process in processes:
         process.start()
 
-    while len(mp.connection.wait(processes, 0)) < nw:
+    sentinels = list(p.sentinel for p in processes)
+    while len(mp.connection.wait(sentinels, 0)) < nw:
         proxy.handle_requests()
 
     proxy.close_connections()
@@ -271,10 +279,10 @@ def compute_elo(elo_params, nns, params, generations, elos):
     players = []
     proxies = []
     for i in range(len(nns)):
-        p = params[i].self_play.merge(elo_params.self_play_override)
+        params[i].self_play.merge(elo_params.self_play_override)
         proxy = PipeProxyServer(lambda args: nns[i].predict_sync(
-            torch.cat(list(g.get_features() for g in args[0]))))
-        players.append((generations[i], proxy, p))
+            params[i].self_play.nn_batch_builder(*args)))
+        players.append((generations[i], proxy, params[i]))
         proxies.append(proxy)
 
     processes = []
@@ -290,7 +298,8 @@ def compute_elo(elo_params, nns, params, generations, elos):
     for process in processes:
         process.start()
 
-    while len(mp.connection.wait(processes, 0)) < nw:
+    sentinels = list(p.sentinel for p in processes)
+    while len(mp.connection.wait(sentinels, 0)) < nw:
         proxies[0].handle_requests()
         proxies[1].handle_requests()
 

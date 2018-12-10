@@ -7,6 +7,8 @@ from tensorboardX import SummaryWriter
 from functools import partial
 import configuration
 from nn import NeuralNetWrapper
+import logging
+logger = logging.getLogger(__name__)
 
 params = None
 
@@ -107,19 +109,20 @@ def compute_elo(current_nn, elo_params, player0, player1):
     import time
     from self_play import compute_elo as _compute_elo
 
+    print("-"*70)
+    print("Computation of Elo ratings...")
+
     tick = time.time()
 
     params0, gen0, elo0 = player0
     params1, gen1, elo1 = player1
 
-    model0 = params0.nn.nn_class(params0)
+    model0 = params0.nn.model_class(params0)
     model0.load_parameters(gen0)
     nn0 = NeuralNetWrapper(model0, params0)
 
     nn1 = current_nn
 
-    print("-"*70)
-    print("Computation of Elo ratings...")
     elo0, elo1, wins = _compute_elo(elo_params, [nn0, nn1], [params0, params1],
                                     [gen0, gen1], [elo0, elo1])
     print(
@@ -151,31 +154,32 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
 
     model = params.nn.model_class(params)
     nn = NeuralNetWrapper(model, params)
+    batch_i = 0
     if from_generation > 0:
         filename = params.nn.chkpts_filename.format(from_generation-1)
         batch_i = nn.load_checkpoint(filename)
 
     while from_generation <= to_generation:
         if not start_train:
-            selfplay(params, from_generation)
+            selfplay(nn, params, from_generation)
             start_train = False
 
         where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
-        params.nn.train_params.lr = params.nn.train_params.lr_scheduler(
-            from_generation)
-        last_batch_idx = train_nn(
-            nn, params, from_generation, where, writer, last_batch_idx)
-        print(f"Last training batch idx= {last_batch_idx}", flush=True)
+
+        batch_i = train_nn(
+            nn, params, from_generation, where, writer, batch_i)
+        print(f"Last training batch idx= {batch_i}", flush=True)
 
         if from_generation > 0:
             player0 = (params, max(0, from_generation-3), last_model_elo)
             player1 = (params, from_generation, last_model_elo)
             _, last_model_elo, wins = compute_elo(nn, params.elo,
                                                   player0, player1)
-            writer.add_scalar('elo', last_model_elo, last_batch_idx)
-            writer.add_scalar('wins', wins, last_batch_idx)
+            writer.add_scalar('elo', last_model_elo, batch_i)
+            writer.add_scalar('wins', wins, batch_i)
 
         from_generation += 1
+
     writer.close()
 
 
