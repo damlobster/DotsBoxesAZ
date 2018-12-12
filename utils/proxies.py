@@ -79,15 +79,27 @@ class AsyncBatchedProxy():
 
 
 class PipeProxyClient:
-    def __init__(self, id, conn):
+    def __init__(self, id, conn, cache_size=int(5e4), cache_hash=lambda args: args[0].get_hash()):
         super().__init__()
         self.id = id
         self.conn = conn
         self.pending = {}
         self.counter = 0
         self.loop = None
+        self.with_cache = cache_size > 0
+        if self.with_cache:
+            self.cache = pylru.lrucache(cache_size)
+            self.cache.cache_hash = cache_hash
 
     async def __call__(self, *args):
+        logger.debug("pclient.__call__")  # !!!
+        if self.with_cache:
+            logger.debug("pclient with_cache")  # !!!
+            arg_hash = self.cache.cache_hash(args)
+            if arg_hash in self.cache:
+                logger.debug("pclient incache: %s", arg_hash)  # !!!
+                return self.cache[arg_hash]
+
         self.counter = (self.counter + 1) % 5196
         reqn = self.counter
         logger.debug("pclient 0 %d %d", self.id, self.counter)  # !!!
@@ -114,6 +126,7 @@ class PipeProxyClient:
 class PipeProxyServer:
     def __init__(self, func, batch_size=64, timeout=0.1, cache_size=int(1e6), cache_hash=lambda args: args[0].get_hash()):
         super().__init__()
+        logger.info("pserver: batch_size=%d, timeout=%f", batch_size, timeout)
         self.func = func
         self.id_gen = 0
         self.connections = {}
@@ -167,6 +180,8 @@ class PipeProxyServer:
 
         buffer_full = len(self.buffer) >= self.batch_size
         if buffer_full or (len(self.buffer) > 0 and self.last_req_t + self.timeout <= time.time()):
+            logger.info("pserver.func buffer: %d", len(self.buffer))
+
             self.last_req_t = time.time()
             client_ids, seqs, args = zip(*self.buffer)
             self.buffer = []
@@ -175,6 +190,7 @@ class PipeProxyServer:
 
             for i, id in enumerate(client_ids):
                 self.connections[id].send((seqs[i], (p[i], v[i])))
-                self.cache[self.cache.cache_hash(
-                    args[i])] = (p[i], v[i])
+                if self.with_cache:
+                    self.cache[self.cache.cache_hash(
+                        args[i])] = (p[i], v[i])
                 logger.debug("pserver func result %d %d", id, seqs[i])  # !!!

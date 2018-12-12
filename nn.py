@@ -144,7 +144,7 @@ class NeuralNetWrapper():
             params.nn.pytorch_device if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device) if model is not None else None
         nn_params = params.nn.train_params
-        print(nn_params)
+
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           lr=nn_params.lr, **nn_params.adam_params)
 
@@ -267,12 +267,12 @@ class NeuralNetWrapper():
         start_epoch = 0
         if os.path.isfile(filename):
             logger.info(f"=> loading checkpoint '{filename}'")
-            checkpoint = torch.load(filename, map_location='cpu')
+            checkpoint = torch.load(filename, map_location=self.device)
             last_batch_idx = checkpoint['last_batch_idx']
             self.model.load_state_dict(
-                checkpoint['model_dict'].to(self.device))
+                checkpoint['model_dict'])
             self.optimizer.load_state_dict(
-                checkpoint['optimizer_dict'].to(self.device))
+                checkpoint['optimizer_dict'])
         else:
             raise ValueError(f"=> no checkpoint found at '{filename}'")
 

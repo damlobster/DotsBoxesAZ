@@ -162,7 +162,7 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
     while from_generation <= to_generation:
         if not start_train:
             selfplay(nn, params, from_generation)
-            start_train = False
+        start_train = False
 
         where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
 
@@ -202,7 +202,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn')
+    #mp.set_start_method('spawn')
 
     parser = argparse.ArgumentParser(
         description='Launch selfplay/train/elo loop')

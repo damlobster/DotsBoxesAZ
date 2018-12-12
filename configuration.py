@@ -70,7 +70,7 @@ simple = DotDict({
     }
 })
 
-resnet20 = DotDict({
+resnet33 = DotDict({
     "data_root": "data/_exp_",
     "hdf_file": "data/_exp_/sp_data.hdf",
     "tensorboard_log": "data/tboard/_exp_",
@@ -79,12 +79,12 @@ resnet20 = DotDict({
         "init": partial(BoxesState.init_static_fields, ((3, 3),)),
     },
     "self_play": {
-        "num_games": 2000,
-        "n_workers": 10,
-        "games_per_workers": 100,
+        "num_games": 1000,
+        "n_workers": 15,
+        "games_per_workers": 10,
         "reuse_mcts_tree": True,
         "noise": (1.0, 0.25),  # alpha, coeff
-        "nn_batch_size": 48,
+        "nn_batch_size": 576,
         "nn_batch_timeout": 0.05,
         "nn_batch_builder": nn_batch_builder,
         "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
@@ -121,7 +121,7 @@ resnet20 = DotDict({
             "train_batch_size": 2048,
             "val_batch_size": 2048,
             "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:5e-4,}),
-            "lr": None,
+            "lr": 1e-3,
             "adam_params": {
                 "betas": (0.9, 0.999),
                 "weight_decay": 1e-4,
@@ -201,7 +201,7 @@ resnet55 = DotDict({
             "train_batch_size": 2048,
             "val_batch_size": 2048,
             "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:5e-4,}),
-            "lr": None,
+            "lr": 1e-3,
             "adam_params": {
                 "betas": (0.9, 0.999),
                 "weight_decay": 1e-4,
@@ -231,7 +231,7 @@ resnet55 = DotDict({
 })
 
 # configuration to use
-params = resnet55
+params = resnet33
 params.game.init()
 
 DEFAULT_LOGGING = {

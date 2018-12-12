@@ -244,7 +244,7 @@ def generate_games(hdf_file_name, generation, nn, n_games, params, n_workers=Non
     lock = mp.Lock()
 
     proxy = PipeProxyServer(lambda args: nn.predict_sync(
-        params.self_play.nn_batch_builder(*args)))
+        params.self_play.nn_batch_builder(*args)), params.self_play.nn_batch_size, params.self_play.nn_batch_timeout)
 
     processes = []
     for process_id, idxs in enumerate(games_idxs):
@@ -281,7 +281,7 @@ def compute_elo(elo_params, nns, params, generations, elos):
     for i in range(len(nns)):
         params[i].self_play.merge(elo_params.self_play_override)
         proxy = PipeProxyServer(lambda args: nns[i].predict_sync(
-            params[i].self_play.nn_batch_builder(*args)))
+            params[i].self_play.nn_batch_builder(*args)), params[i].self_play.nn_batch_size, params[i].self_play.nn_batch_timeout)
         players.append((generations[i], proxy, params[i]))
         proxies.append(proxy)
 
