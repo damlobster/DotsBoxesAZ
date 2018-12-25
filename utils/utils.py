@@ -67,7 +67,7 @@ def _reshape(X, features_shape):
         return X.reshape((-1, *features_shape))
 
 class HDFStoreDataset(data.Dataset):
-    def __init__(self, hdf_file, key, train, features_shape=None, where=None, max_samples=int(1e12), pos_average=False):
+    def __init__(self, hdf_file, key, train, features_shape=None, where=None, max_samples=int(1e12), pos_average=False, fake_z=None):
         super(HDFStoreDataset, self).__init__()
         with pd.HDFStore(hdf_file, "r") as hdf_store:
             df = hdf_store.select(key, where)
@@ -82,6 +82,8 @@ class HDFStoreDataset(data.Dataset):
             self.features = _reshape(df[features_cols].values.astype(np.float32), features_shape)
             self.policy = df[list(c for c in cols if c.startswith("pi_"))].values.astype(np.float32)
             self.value = df.z.values.astype(np.float32)
+            if fake_z is not None:
+                self.value = fake_z(self.features, self.value)
             #self.value = 0.5 * (df.z.values.astype(np.float32) + df.q_value.values.astype(np.float32))
 
     def __len__(self):
@@ -92,6 +94,14 @@ class HDFStoreDataset(data.Dataset):
         policy = self.policy[index]
         value = self.value[index]
         return board, policy, np.asarray([value])
+
+    def normalize(self, mean=None, std=None):
+        if mean is None:
+            mean = self.features.mean(axis=0)
+            std = self.features.std(axis=0)
+            std[std==0] = 1.0
+        self.features = (self.features-mean)/std
+        return mean, std
 
 def write_to_hdf(hdf_file, key, dataframe):
     with pd.HDFStore(hdf_file, mode="a") as store:

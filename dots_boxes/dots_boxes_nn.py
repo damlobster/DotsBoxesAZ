@@ -4,16 +4,19 @@ logger = logging.getLogger(__name__)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
  
 N_CH = 256
 
 class SymmetriesGenerator(nn.Module):
-    def __init__(self, rotations=True):
+    IDXS = [(None, False), ((1,), False), ((2,), False), ((1,2), False), 
+            (None, True), ((1,), True), ((2,), True), ((1,2), True)]
+
+    def __init__(self):
         super(SymmetriesGenerator, self).__init__()
-        self.rotations = rotations
 
     @torch.no_grad()
-    def forward(self, boards, policies, values):
+    def forward(self, boards, policies):
         def _symmerty(t, dims):
             h = torch.flip(t[:, 0, :, :-1], dims)
             h = torch.cat((h, t[:, 0, :, -1].unsqueeze(2)), 2)
@@ -39,29 +42,20 @@ class SymmetriesGenerator(nn.Module):
             else:
                 return torch.cat((h.unsqueeze(1),v.unsqueeze(1)), 1)
 
-        policies = policies.reshape(-1, 2, *boards.size()[-2:])
-        results = [(boards, policies, values)]
-        results.append((_symmerty(boards, [1]), _symmerty(policies, [1]), values))
-        results.append((_symmerty(boards, [2]), _symmerty(policies, [2]), values))
-        results.append((_symmerty(boards, [1, 2]), _symmerty(policies, [1, 2]), values))
+        dims, rotate = SymmetriesGenerator.IDXS[random.randint(0,7)]
+        if dims is not None or rotate:
+            policies = policies.reshape(-1, 2, *boards.size()[-2:])
+            if dims is not None:
+                boards = _symmerty(boards, dims)
+                policies = _symmerty(policies, dims)
 
-        if self.rotations:
-            results += list((_rotate(f), _rotate(p), v) for f, p, v in results)
-        
+            if rotate:
+                boards = _rotate(boards)
+                policies = _rotate(policies)
+            
+            policies = policies.reshape(policies.size()[0], -1)
 
-        batch_size = boards.size()[0]
-        boards, policies, values = zip(*results)
-
-        boards = torch.cat(boards)
-        policies = torch.cat(policies, 0)
-        policies = policies.reshape(policies.size()[0], -1)
-        values = torch.cat(values)
-
-        perm = torch.randperm(boards.size()[0], device=values.device)
-        boards = boards[perm].split(batch_size)
-        policies = policies[perm].split(batch_size)
-        values = values[perm].split(batch_size)
-        return boards, policies, values
+        return boards, policies
 
 
 class SimpleNN(nn.Module):

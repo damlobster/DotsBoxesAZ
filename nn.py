@@ -14,12 +14,12 @@ from game import GameState
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks):
+    def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks, n_groups=1, pad_layer0=True):
         super(ResNet, self).__init__()
-        self.conv0 = _create_conv_layer(in_channels, nb_channels, kernel_size)
+        self.conv0 = _create_conv_layer(in_channels, nb_channels, kernel_size, 1, pad_layer0)
         self.bn0 = nn.BatchNorm2d(nb_channels)
         self.resblocks = nn.Sequential(
-            *(ResBlock(nb_channels, kernel_size) for _ in range(nb_blocks))
+            *(ResBlock(nb_channels, kernel_size, n_groups) for _ in range(nb_blocks))
         )
 
     def forward(self, x):
@@ -31,11 +31,11 @@ class ResNet(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, nb_channels, kernel_size):
+    def __init__(self, nb_channels, kernel_size, n_groups):
         super(ResBlock, self).__init__()
-        self.conv1 = _create_conv_layer(nb_channels, nb_channels, kernel_size)
+        self.conv1 = _create_conv_layer(nb_channels, nb_channels, kernel_size, n_groups)
         self.bn1 = nn.BatchNorm2d(nb_channels)
-        self.conv2 = _create_conv_layer(nb_channels, nb_channels, kernel_size)
+        self.conv2 = _create_conv_layer(nb_channels, nb_channels, kernel_size, n_groups)
         self.bn2 = nn.BatchNorm2d(nb_channels)
 
     def forward(self, x):
@@ -48,14 +48,17 @@ class ResBlock(nn.Module):
         return _x
 
 
-def _create_conv_layer(in_channels, out_channels, kernel_size):
+def _create_conv_layer(in_channels, out_channels, kernel_size, n_groups, padding=True):
     if kernel_size % 2 == 0:
-        pad = nn.ConstantPad2d((0, kernel_size//2, 0, kernel_size//2), 0.0)
-        conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=0)
-        return nn.Sequential(pad, conv)
+        conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=0, groups=n_groups)
+        if padding:
+            pad = nn.ConstantPad2d((0, kernel_size//2, 0, kernel_size//2), 0.0)
+            return nn.Sequential(pad, conv)
+        else:
+            return conv
     else:
         return nn.Conv2d(in_channels, out_channels, kernel_size,
-                         padding=(kernel_size-1)//2)
+                         padding=(kernel_size-1)//2 if padding else 0, groups=n_groups)
 
 
 class PolicyHead(nn.Module):
@@ -169,7 +172,7 @@ class NeuralNetWrapper():
         #self.model = nn.DataParallel(self.model, device_ids=[1, 0])
         params = self.params.nn.train_params
 
-        drop_last = False
+        drop_last = True
         train_data = data.DataLoader(
             train_dataset, params.train_batch_size, shuffle=True, drop_last=drop_last)
         validation_data = data.DataLoader(

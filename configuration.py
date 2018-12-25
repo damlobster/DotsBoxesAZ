@@ -18,7 +18,7 @@ simple = DotDict({
     "tensorboard_log": "data/tboard/_exp_",
     "game": {
         "clazz": BoxesState,
-        "init": partial(BoxesState.init_static_fields, 3, 3),
+        "init": partial(BoxesState.init_static_fields, ((3, 3),)),
     },
     "self_play": {
         "num_games": 4000,
@@ -52,7 +52,7 @@ simple = DotDict({
     },
     "nn": {
         "model_class":SimpleNN,
-        "pytorch_device": "cuda:1",
+        "pytorch_device": "cuda:0",
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "nb_epochs": 5,
@@ -111,7 +111,7 @@ resnet20 = DotDict({
     },
     "nn": {
         "model_class": ResNetZero,
-        "pytorch_device": "cuda:1",
+        "pytorch_device": "cuda:0",
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "pos_average": True,
@@ -121,7 +121,7 @@ resnet20 = DotDict({
             "train_batch_size": 2048,
             "val_batch_size": 2048,
             "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:5e-4,}),
-            "lr": None,
+            "lr": 0.1,
             "adam_params": {
                 "betas": (0.9, 0.999),
                 "weight_decay": 1e-4,
@@ -129,10 +129,12 @@ resnet20 = DotDict({
         },
         "model_parameters": {
             "resnet": {
+                "pad_layer0": True,
                 "in_channels": 3,
                 "nb_channels": 128,
                 "kernel_size": 3,
-                "nb_blocks": 10
+                "nb_blocks": 10,
+                "n_groups": 4,
             },
             "policy_head": {
                 "in_channels": 128,
