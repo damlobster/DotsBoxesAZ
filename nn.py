@@ -14,12 +14,12 @@ from game import GameState
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks, n_groups=1, pad_layer0=True):
+    def __init__(self, in_channels, nb_channels, kernel_size, nb_blocks, n_groups=1, inner_channels=None, pad_layer0=True):
         super(ResNet, self).__init__()
         self.conv0 = _create_conv_layer(in_channels, nb_channels, kernel_size, 1, pad_layer0)
         self.bn0 = nn.BatchNorm2d(nb_channels)
         self.resblocks = nn.Sequential(
-            *(ResBlock(nb_channels, kernel_size, n_groups) for _ in range(nb_blocks))
+            *(ResBlock(nb_channels, kernel_size, n_groups, inner_channels) for _ in range(nb_blocks))
         )
 
     def forward(self, x):
@@ -31,17 +31,27 @@ class ResNet(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, nb_channels, kernel_size, n_groups):
+    def __init__(self, nb_channels, kernel_size, n_groups, inner_channels):
         super(ResBlock, self).__init__()
-        self.conv1 = _create_conv_layer(nb_channels, nb_channels, kernel_size, n_groups)
-        self.bn1 = nn.BatchNorm2d(nb_channels)
-        self.conv2 = _create_conv_layer(nb_channels, nb_channels, kernel_size, n_groups)
+
+        inner = nb_channels
+        self.inner_conv = None
+        if inner_channels:
+            inner = inner_channels
+            self.inner_conv = _create_conv_layer(inner, inner, kernel_size, n_groups)
+            self.inner_bn = nn.BatchNorm2d(inner)
+
+        self.conv1 = _create_conv_layer(nb_channels, inner, kernel_size, n_groups)
+        self.bn1 = nn.BatchNorm2d(inner)
+        self.conv2 = _create_conv_layer(inner, nb_channels, kernel_size, n_groups)
         self.bn2 = nn.BatchNorm2d(nb_channels)
 
     def forward(self, x):
         logger.debug("Resblock in: %s", x.size())
         _x = self.conv1(x)
         _x = F.relu(self.bn1(_x))
+        if self.inner_conv:
+            _x = F.relu(self.inner_bn(self.inner_conv(_x)))
         _x = self.bn2(self.conv2(_x))
         _x += x
         _x = F.relu(_x)
@@ -99,22 +109,17 @@ class ResNetZero(nn.Module):
     def __init__(self, params):
         super(ResNetZero, self).__init__()
         self.params = params
+        self.bn_input = nn.BatchNorm2d(params.nn.model_parameters.resnet.in_channels)
         self.resnet = ResNet(**params.nn.model_parameters.resnet)
         self.value_head = ValueHead(**params.nn.model_parameters.value_head)
         self.policy_head = PolicyHead(**params.nn.model_parameters.policy_head)
 
     def forward(self, x):
+        x = self.bn_input(x)
         x = self.resnet(x)
         p = self.policy_head(x)
         v = self.value_head(x)
         return (p, v)
-
-    def save_parameters(self, generation):
-        raise ValueError("Do not call!!!")
-        #filename = self.params.nn.chkpts_filename
-        #fn = filename.format(generation)
-        #logger.info("Model saved to: %s", fn)
-        #torch.save(self.state_dict(), fn)
 
     def load_parameters(self, generation, to_device=None):
         filename = self.params.nn.chkpts_filename
@@ -130,8 +135,7 @@ class AlphaZeroLoss(nn.Module):
     def forward(self, p, v, pi, z):
         loss_v = (z - v).pow(2).mean()
         loss_pi = -(pi * p).sum(1).mean()
-        return loss_v + loss_pi, (loss_pi.item(), loss_v.item()) #loss:variable, (loss_v:float, loss_pi:float)
-
+        return loss_v + loss_pi, (loss_pi.item(), loss_v.item())
 
 def _err_cb(fut):
     if fut.exception():
@@ -169,7 +173,13 @@ class NeuralNetWrapper():
         return res
 
     def train(self, train_dataset, val_dataset, writer, generation):
-        #self.model = nn.DataParallel(self.model, device_ids=[1, 0])
+
+        @torch.no_grad()
+        def compute_accuracy(v, z, threshold=0.5):
+            correct = z.sign().eq(v.sign())
+            correct *= (v-z).abs().lt(threshold)
+            return correct.sum().item(), z.size()[0]
+
         params = self.params.nn.train_params
 
         drop_last = True
@@ -179,71 +189,83 @@ class NeuralNetWrapper():
             val_dataset, params.val_batch_size, shuffle=False, drop_last=drop_last) if val_dataset is not None else None
 
         criterion = AlphaZeroLoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, **params.adam_params)
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=params.lr, **params.optimizer_params)
         batch_i = 0
         if generation > 0:
             filename = self.params.nn.chkpts_filename.format(generation-1)
             batch_i = load_checkpoint(filename, self.model, optimizer, self.device)
 
-        logger.warning(f"LR={params.lr}")
+        logger.warning(f"lr = {params.lr}")
         writer.add_scalar("lr", params.lr, batch_i)
         for epoch in range(params.nb_epochs):
 
             self.model.train(True)
             tr_loss = 0
             tr_n_batches = 0
+            tr_acc_correct = 0
+            tr_acc_total = 1
             for boards, pi, z in train_data:
+                batch_i += 1
+                tr_n_batches += 1
 
                 # Transfer to GPU
                 boards = boards.to(self.device)
                 pi = pi.requires_grad_(True).to(self.device)
                 z = z.requires_grad_(True).to(self.device)
 
-                boards, pi, z = params.symmetries(boards, pi, z)
+                boards, pi = params.symmetries(boards, pi)
 
-                for i in range(len(boards)):
-                    batch_i += 1
-                    tr_n_batches += 1
+                p, v = self.model(boards)
+                loss, (loss_pi, loss_v) = criterion(p, v, pi, z)
+                
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
 
-                    p, v = self.model(boards[i])
-                    loss, (loss_pi, loss_v) = criterion(p, v, pi[i], z[i])
-                    #loss = loss/n_batches
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
+                c, t = compute_accuracy(v, z)
+                tr_acc_correct += c
+                tr_acc_total += t
 
-                    loss_v, loss_pi = loss_v, loss_pi
-                    tr_loss += loss_pi + loss_v
-                    # write scalars to tensorboard
-                    writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
+                loss_v, loss_pi = loss_v, loss_pi
+                tr_loss += loss_pi + loss_v
+                # write scalars to tensorboard
+                writer.add_scalars('loss', {'pi/train': loss_pi, 'v/train':loss_v, 'total/train':loss_pi+loss_v}, batch_i)
             
             val_loss = 0.0
             loss_v = 0.0
             loss_pi = 0.0
+            val_acc_correct = 0
+            val_acc_total = 1
             if val_dataset:
                 self.model.train(False)
-                loss_pi, loss_v = 0.0, 0.0
                 val_n_batches = 0
                 for boards, pi, z in validation_data:
+                    val_n_batches += 1
+
                     # Transfer to GPU
                     boards = boards.to(self.device)
                     pi = pi.to(self.device)
                     z = z.to(self.device)
 
-                    boards, pi, z = params.symmetries(boards, pi, z)
+                    boards, pi = params.symmetries(boards, pi)
 
-                    for i in range(len(boards)):
-                        val_n_batches += 1
-                        p, v = self.model(boards[i])
-                        _, (_loss_pi, _loss_v) = criterion(p, v, pi[i], z[i])
-                        loss_v += _loss_v
-                        loss_pi += _loss_pi
+                    p, v = self.model(boards)
+
+                    c, t = compute_accuracy(v, z)
+                    val_acc_correct += c
+                    val_acc_total += t
+
+                    _, (_loss_pi, _loss_v) = criterion(p, v, pi, z)
+                    loss_v += _loss_v
+                    loss_pi += _loss_pi
 
                 loss_v /= val_n_batches
                 loss_pi /= val_n_batches
                 val_loss = loss_v + loss_pi
-                writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i) #, walltime=batch_i)
+                writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i)
 
+            writer.add_scalars('accuracy', {'v/train': tr_acc_correct/tr_acc_total, 'v/eval':val_acc_correct/val_acc_total}, batch_i)
+            writer.add_scalar('generation', generation, batch_i)
             print(f"Epoch {epoch}, train loss= {tr_loss/tr_n_batches:5f}, validation loss= {val_loss:5f}", flush=True)
 
         filename = self.params.nn.chkpts_filename.format(generation)
@@ -268,8 +290,7 @@ class GenerationLrScheduler(object):
 
 
 def save_checkpoint(filename, model, optimizer, last_batch_idx):
-    state = {'last_batch_idx': last_batch_idx, 'model_dict': model.state_dict(),
-             'optimizer_dict': optimizer.state_dict()}
+    state = {'last_batch_idx': last_batch_idx, 'model_dict': model.state_dict(), 'optimizer_dict': optimizer.state_dict()}
     torch.save(state, filename)
 
 def load_checkpoint(filename, model, optimizer, to_device):

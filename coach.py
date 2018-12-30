@@ -69,9 +69,18 @@ def train_nn(params, generation, where, writer):
             print("No new training data! Is it normal?", flush=True)
 
     avg = params.nn.train_params.pos_average
-    train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, features_shape=params.game.clazz.FEATURES_SHAPE, where=where, pos_average=avg)
-    val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, features_shape=params.game.clazz.FEATURES_SHAPE, where=where, pos_average=avg)
+    n_samples = params.nn.train_params.max_samples_per_gen
+    split = params.nn.train_params.train_split
+
+    train_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=True, 
+        features_shape=params.game.clazz.FEATURES_SHAPE, 
+        where=where, n_samples=int(n_samples*split), pos_average=avg)
+
+    val_ds = utils.HDFStoreDataset(params.hdf_file, "data", train=False, 
+        features_shape=params.game.clazz.FEATURES_SHAPE, 
+        where=where, n_samples=int(n_samples*(1-split)), pos_average=avg)
     model = params.nn.model_class(params)
+
     wrapper = NeuralNetWrapper(model, params)
 
     if params.nn.lr_scheduler is not None:

@@ -30,8 +30,11 @@ class SelfPlay(object):
                                              self.params.self_play.mcts.max_async_searches, dirichlet)
         # apply temperature
         probs = (visit_counts/visit_counts.max()) ** (1/temperature)
-        probs = probs / probs.sum() # TODO: p/p.sum() is sometimes > 1
+        probs = probs / probs.sum()
+        # sample next move
         move = np.random.choice(probs.shape[0], 1, p=probs)[0]
+
+        # debug 
         if(logger.isEnabledFor(logging.DEBUG)):
             msg = []
             for i in range(visit_counts.shape[0]):
@@ -42,6 +45,7 @@ class SelfPlay(object):
 
             logger.debug(" ".join(msg))
             logger.debug("move= %s", move)
+        # end debug
         return move
 
     async def play_game(self, game_state, idx):
@@ -52,14 +56,14 @@ class SelfPlay(object):
         i = -1
         while not root_node.is_terminal:
             i += 1
-            self.player_change_callback(root_node.game_state.next_player)
+            self.player_change_callback(root_node.game_state.to_play)
             params = self.params
             if i in params.self_play.mcts.temperature:
                 temperature = params.self_play.mcts.temperature[i]
 
             nb_valid_moves = len(root_node.game_state.get_valid_moves(as_indices=True))
-            searches = min(4*math.factorial(nb_valid_moves), params.self_play.mcts.mcts_num_read)
-            move = await self.get_next_move(root_node, searches, temperature, params.self_play.noise)
+            n_searches = min(4*math.factorial(nb_valid_moves), params.self_play.mcts.mcts_num_read)
+            move = await self.get_next_move(root_node, n_searches, temperature, params.self_play.noise)
             
             moves_sequence.append(root_node)
             root_node = mcts.init_mcts_tree(root_node, move, reuse_tree=params.self_play.reuse_mcts_tree)
@@ -98,28 +102,28 @@ class SelfPlay(object):
         values = []
         stats = []
         for game_idx, moves_seq, z in self.played_games:
-            for move_i, node in reversed(list(enumerate(moves_seq[:-1]))): #! remove last move in training data
-                if node.game_state.player != node.game_state.next_player:
-                    z = -z # flip sign of z if player has changed
+            terminal = moves_seq[-1]
+            winner = terminal.game_state.just_played
+            for move_i, node in enumerate(moves_seq[:-1]):
                 game_idxs.append(game_idx)
                 moves_idxs.append(move_i)
                 moves.append(node.move)
-                players.append(node.game_state.player)
-                values.append(z)
+                players.append(node.game_state.to_play)
+                values.append(z if node.game_state.just_played == winner else -z)
                 stats.append(node.get_tree_stats())
                 vs = node.child_number_visits.sum()
-                policies.append(node.child_number_visits / (vs if vs > 0.0 else 1.0))
+                policies.append(node.child_number_visits / (vs or 1.0))
                 if with_features:
                     features.append(node.game_state.get_features().ravel())
 
-        players = np.asarray(players, dtype=np.int8)        
+        players = np.asarray(players, dtype=np.int8)
         if isinstance(generation, (list, tuple)):
-            gen = np.zeros(len(game_idxs), dtype=np.int16)
+            gen = np.zeros(len(moves_idxs), dtype=np.int16)
             gen[players==0] = generation[0]
             gen[players==1] = generation[1]
             generation = gen
         else:
-            generation = np.asarray([generation]*len(game_idxs), dtype=np.int16)
+            generation = np.asarray([generation]*len(moves_idxs), dtype=np.int16)
 
         df = pd.DataFrame(generation, columns=['generation'])
         games_idxs = np.asarray(game_idxs, dtype=np.int16)
@@ -262,7 +266,7 @@ def _worker_run(games_idxs):
 
     tock = time.time()
 
-    logger.info("Worker %s played %d games (%d samples) in %.0fs (save=%.3fs)", 
+    logger.warning("Worker %s played %d games (%d samples) in %.0fs (save=%.3fs)", 
         _env_.name, len(games_idxs), len(df.index), tock-tick, tock-tack)
 
 

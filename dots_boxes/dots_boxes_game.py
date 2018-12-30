@@ -7,7 +7,7 @@ import numpy as np
 from game import GameState
 
 class BoxesState(GameState):
-    __slots__ = 'hash', 'board', 'player', 'next_player', 'boxes_to_close'
+    __slots__ = 'hash', 'board', 'just_played', 'to_play', 'boxes_to_close'
     BOARD_DIM = (3, 3)
     FEATURES_SHAPE = (3, BOARD_DIM[0]+1, BOARD_DIM[1]+1)
     NB_ACTIONS = 2 * (BOARD_DIM[0]+1) * (BOARD_DIM[1]+1)
@@ -28,8 +28,8 @@ class BoxesState(GameState):
         self.board = np.zeros((2, l+1, c+1), dtype=np.uint8)
         self.board[1, l, :] = 1
         self.board[0, :, c] = 1
-        self.player = 0
-        self.next_player = 0
+        self.just_played = None
+        self.to_play = 1 #! FIXME first player = 0
         win_thres = BoxesState.NB_BOXES/2
         self.boxes_to_close = [win_thres, win_thres]
 
@@ -44,14 +44,11 @@ class BoxesState(GameState):
             return m
 
     def get_result(self):
-        if self.player is None:
-            return None
-
         if self.boxes_to_close[0] == 0 and self.boxes_to_close[1] == 0:
             return 0
-        if self.boxes_to_close[self.player] < 0:
+        if self.boxes_to_close[self.to_play] < 0:
             return 1
-        elif self.boxes_to_close[1-self.player] < 0:
+        elif self.boxes_to_close[1-self.to_play] < 0:
             return -1
         else:
             return None
@@ -75,11 +72,12 @@ class BoxesState(GameState):
             if c < self.board.shape[2] - 1 and self._check_box(l, c):
                 closed_idx.append((l, c))
 
-        self.player = self.next_player
+        self.just_played = self.to_play
         if len(closed_idx) == 0:
-            self.next_player = 1 - self.player
+            # no closed boxes -> switch player
+            self.to_play = 1 - self.to_play
         else:
-            self.boxes_to_close[self.player] -= len(closed_idx)
+            self.boxes_to_close[self.to_play] -= len(closed_idx)
 
         self._update_hash(move)
         return closed_idx
@@ -92,7 +90,7 @@ class BoxesState(GameState):
     def get_features(self):
         board = self.board//255
         boxes_to_close = np.full_like(
-            board[0], self.boxes_to_close[self.player]*2, dtype=np.int8)
+            board[0], self.boxes_to_close[self.to_play]*2, dtype=np.int8)
         return np.concatenate((board, np.expand_dims(boxes_to_close, 0)), axis=0)
 
     def _check_box(self, l, c):
@@ -102,7 +100,7 @@ class BoxesState(GameState):
     def _update_hash(self, move):
         b, _ = self.hash
         b += 1 << move
-        self.hash = (b, self.boxes_to_close[self.next_player])
+        self.hash = (b, self.boxes_to_close[self.to_play])
 
     def get_hash(self):
         return self.hash
@@ -118,8 +116,8 @@ class BoxesState(GameState):
         strings = []
         _, lines, cols = b.shape
         strings.append("-"*30)
-        strings.append("Player = " + str(self.player))
-        strings.append("Next player = " + str(self.next_player))
+        strings.append("Just played = " + str(self.just_played))
+        strings.append("To play = " + str(self.to_play))
         strings.append("Boxes to close = " + str(self.boxes_to_close))
         strings.append("Result = " + str(self.get_result()))
         for l in range(lines):
@@ -155,14 +153,14 @@ def moves_to_string(moves, visits_counts=None):
     for m in moves:
         just_closed_boxes = g.play_(m)
         for l, c in just_closed_boxes:
-            boxes[l][c] = "0" if g.player == 0 else "1"
+            boxes[l][c] = "0" if g.to_play == 0 else "1"
 
     b = g.board
     strings = []
     _, lines, cols = g.board.shape
     strings.append("-"*30)
-    strings.append("Player = " + str(g.player))
-    strings.append("Next player = " + str(g.next_player))
+    strings.append("Just played = " + str(self.just_played))
+    strings.append("To play = " + str(g.to_play))
     strings.append("Boxes to close = " + str(g.boxes_to_close))
     strings.append("Result = " + str(g.get_result()))
     for l in range(lines):

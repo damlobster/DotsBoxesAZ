@@ -15,6 +15,8 @@ from utils.utils import DictWithDefault
 tree_stats_enabled = True
 TreeStats = namedtuple('TreeStats', ['max_deepness', 'tree_size', 'terminal_count', 'q_value'])
 
+VIRTUAL_LOSS = 1
+
 class TreeRoot():
     def __init__(self, game_state):
         self.first_node = None
@@ -37,7 +39,8 @@ class UCTNode():
                  'child_priors', 'child_total_value', 'child_number_visits', 
                  'is_terminal', "deepness"]
 
-    CPUCT = 1.0
+    CPUCT = 1.25
+    CPUCT_BASE = 19652
 
     def __init__(self, game_state: GameState, move: int, parent):
         self.game_state = game_state
@@ -72,47 +75,45 @@ class UCTNode():
     def total_value(self, value):
         self.parent.child_total_value[self.move] = value
 
-    def child_Q(self):
-        return self.child_total_value / (1 + self.child_number_visits)
+    def children_ucb_score(self):
+        pb_c = math.log((self.number_visits + UCTNode.CPUCT_BASE + 1) / UCTNode.CPUCT_BASE) + UCTNode.CPUCT
+        pb_c *= math.sqrt(self.number_visits) / (self.child_number_visits + 1)
 
-    def child_U(self):
-        return math.sqrt(self.number_visits) * (
-            self.child_priors / (1 + self.child_number_visits))
+        prior_score = pb_c * self.child_priors
+        value_score = self.child_total_value / (1 + self.child_number_visits)
+        return prior_score + value_score
 
     def best_child(self):
         invalid_moves = 1 - self.game_state.get_valid_moves()
-        return np.argmax(-1e12*invalid_moves + self.child_Q() + UCTNode.CPUCT * self.child_U())
+        return np.argmax(-1e12*invalid_moves + self.children_ucb_score())
 
     def select_leaf(self):
         current = self
+        search_path = [current]
         while current.is_expanded and not current.is_terminal:
-            #current.number_visits += 1
-            current.total_value -= 2
+            current.total_value -= VIRTUAL_LOSS
             best_move = current.best_child()
             current = current.children[best_move]
-        #current.number_visits += 1
-        current.total_value -= 2
-        return current
+            search_path.append(current)
+
+        return current, search_path
     
     def expand(self, child_priors):
-        if not self.is_terminal:
-            self.is_expanded = True
-            self.child_priors = child_priors
+        self.is_expanded = True
+        self.child_priors = child_priors
 
-    def backup(self, value_estimate: float):
-        current = self
-        v = value_estimate
-        while not isinstance(current, TreeRoot):
-            v = v if current.game_state.player == current.game_state.next_player else -v
-            current.number_visits += 1
-            current.total_value += v + 2
-            current = current.parent
+    def backup(self, search_path: list, value_estimate: float):
+        to_play = self.game_state.to_play
+        for i, node in enumerate(search_path):
+            v = value_estimate if node.game_state.just_played == to_play else -value_estimate
+            node.total_value += v + VIRTUAL_LOSS
+            node.number_visits += 1
         
         if tree_stats_enabled:
-            # current is the TreeRoot: update tree stats
-            # self is the leaf down the tree
-            current.terminal_states_count += self.is_terminal
-            current.max_deepness = max(current.max_deepness, self.deepness)
+            # root is the TreeRoot, self is the leaf down the tree
+            root = search_path[0].parent
+            root.terminal_states_count += self.is_terminal
+            root.max_deepness = max(root.max_deepness, self.deepness)
 
     def get_tree_stats(self):
         assert isinstance(self.parent, TreeRoot), "Must be called on the first node of the tree"
@@ -162,25 +163,28 @@ def init_mcts_tree(previous_node, move, reuse_tree=True):
     return next_node
 
 
-async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=1.0, max_pending_evals=64, dirichlet=(0.0, 0.0), time_limit=None):
-    import multiprocessing as mp
+async def UCT_search(root_node: UCTNode, num_reads, async_nn, cpuct=(1.25, 19652), max_pending_evals=64, dirichlet=(0.0, 0.0), time_limit=None):
     async def _search():
-        leaf = root_node.select_leaf()
+        leaf, search_path = root_node.select_leaf()
         if not leaf.is_terminal: 
             child_priors, value_estimate = await async_nn(leaf.game_state)
+            # mask invalid moves and renormalize
+            child_priors = child_priors * leaf.game_state.get_valid_moves(as_indices=False)
+            priors_sum = child_priors.sum()
+            if priors_sum > 0 and priors_sum != 1.0:
+                child_priors /= priors_sum
         else:
             child_priors, value_estimate = np.zeros(
                 leaf.game_state.get_actions_size()), leaf.game_state.get_result()
 
-        leaf.expand(child_priors *
-                    leaf.game_state.get_valid_moves(as_indices=False))
-        leaf.backup(value_estimate)
+        leaf.expand(child_priors)
+        leaf.backup(search_path, value_estimate)
 
     end_time = time.time() + 120 # by default 2 minutes time limit
     if time_limit:
         end_time = time.time() + time_limit
 
-    UCTNode.CPUCT = cpuct
+    UCTNode.CPUCT, UCTNode.CPUCT_BASE = cpuct
 
     if not root_node.is_expanded:
         await _search()
@@ -224,7 +228,7 @@ def _err_cb(fut):
         print(fut.exception(), flush=True)
         raise fut.exception()
 
-def print_mcts_tree(root_node: UCTNode, prefix=""):
-    print("{}{} -> {}".format(prefix, root_node.move, root_node.game_state.hash))
+def print_mcts_tree(root_node: UCTNode, prefix=" "):
+    print(f"{prefix[:-1]}{root_node.move} ({root_node.number_visits}/{root_node.total_value}) -> {root_node.game_state.to_play} {root_node.game_state.get_result()} {root_node.game_state.hash}")
     for node in root_node.children.values():
-        print_mcts_tree(node, prefix + "    ")
+        print_mcts_tree(node, prefix + "   |")
