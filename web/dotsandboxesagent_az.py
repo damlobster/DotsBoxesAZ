@@ -2,6 +2,9 @@
 # encoding: utf-8
 
 # ./dotsandboxesagent_az.py "configuration.resnet20" "resnet-0811-0020" 10.0.0.11 8081
+import sys
+sys.path.append("..")
+
 from players import AZPlayer
 from mcts import UCT_search, create_root_uct_node
 import configuration
@@ -18,9 +21,6 @@ from collections import defaultdict
 import random
 from functools import partial
 import multiprocessing as mp
-
-import sys
-sys.path.append("..")
 
 logger = logging.getLogger(__name__)
 
