@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
-#./dotsandboxesagent_az.py "configuration.resnet20" "resnet-0811-0020" 10.0.0.11 8081
+# ./dotsandboxesagent_az.py "configuration.resnet20" "resnet-0811-0020" 10.0.0.11 8081
+from players import AZPlayer
+from mcts import UCT_search, create_root_uct_node
+import configuration
 """
 dotsandboxesagent_az.py
 """
@@ -18,9 +21,6 @@ import multiprocessing as mp
 
 import sys
 sys.path.append("..")
-import configuration
-from mcts import UCT_search, create_root_uct_node
-from players import AZPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ games = {}
 Game = None
 azplayer = None
 queues = (None, None)
+
 
 class DotsAndBoxesAgent:
     """Example Dots and Boxes agent implementation base class.
@@ -43,6 +44,7 @@ class DotsAndBoxesAgent:
     This class does not necessarily use the best data structures for the
     approach you want to use.
     """
+
     def __init__(self, time_limit, game_uuid):
         """Create Dots and Boxes agent.
 
@@ -78,7 +80,7 @@ class DotsAndBoxesAgent:
         move = 0 if orientation == "h" else self.BSIZE
         move += row * Game.FEATURES_SHAPE[2] + column
         if self.state.get_valid_moves()[move]:
-            logger.debug("BEFORE move: %s", self.state) 
+            logger.debug("BEFORE move: %s", self.state)
             self.state.play_(move)
             logger.debug("AFTER move: %s", self.state)
         else:
@@ -92,18 +94,20 @@ class DotsAndBoxesAgent:
 
         :return: (row, column, orientation)
         """
-        logger.debug("Computing next move (uuid={}, player={})"\
-                .format(self.game_uuid, player))
+        logger.debug("Computing next move (uuid={}, player={})"
+                     .format(self.game_uuid, player))
 
-        if player != self.state.next_player+1:
+        if player != self.state.to_play+1:
             return None
 
         try:
-            self.req_queue.put((self.game_uuid, self.state, self.generations[player], self.time_limit))
+            self.req_queue.put((self.game_uuid, self.state,
+                                self.generations[player], self.time_limit))
             loop = asyncio.get_event_loop()
             game_uuid, move = await loop.run_in_executor(None, self.res_queue.get)
             if game_uuid != self.game_uuid:
-                print("Games UUID don't match, received=", game_uuid, "self=", self.game_uuid, flush=True)
+                print("Games UUID don't match, received=",
+                      game_uuid, "self=", self.game_uuid, flush=True)
 
             logger.debug("move mcts="+str(move))
             if move is None:
@@ -121,7 +125,7 @@ class DotsAndBoxesAgent:
         self.state = Game()
 
 
-## MAIN EVENT LOOP
+# MAIN EVENT LOOP
 
 async def handler(websocket, path):
     logger.info("Start listening")
@@ -139,7 +143,8 @@ async def handler(websocket, path):
             if msg["type"] == "start":
                 # Initialize game
                 if uuid in games:
-                    logger.debug(f"Add player {msg['player']} with gen {generation}")
+                    logger.debug(
+                        f"Add player {msg['player']} with gen {generation}")
                     games[uuid].add_player(msg["player"], generation)
                 else:
                     logger.debug("Init new game")
@@ -155,7 +160,8 @@ async def handler(websocket, path):
                         logger.exception(e)
                     if nm is None:
                         # Game over
-                        if uuid in games: del games[uuid]
+                        if uuid in games:
+                            del games[uuid]
                         logger.info("Game over")
                         continue
                     r, c, o = nm
@@ -179,7 +185,8 @@ async def handler(websocket, path):
                     if nm is None:
                         # Game over
                         logger.info("Game over")
-                        if uuid in games: del games[uuid]
+                        if uuid in games:
+                            del games[uuid]
                         continue
                     nr, nc, no = nm
                     if no != "not_my_turn":
@@ -193,7 +200,8 @@ async def handler(websocket, path):
 
             elif msg["type"] == "end":
                 # End the game
-                if uuid in games: del games[uuid]
+                if uuid in games:
+                    del games[uuid]
                 answer = None
             else:
                 logger.error("Unknown message type:\n{}".format(msg))
@@ -219,23 +227,30 @@ def start_server(ip, port):
     asyncio.get_event_loop().set_debug()
 
 
-## COMMAND LINE INTERFACE
+# COMMAND LINE INTERFACE
 
 def main(argv=None):
     global azplayer
     global queues
     global Game
 
-    parser = argparse.ArgumentParser(description='Start agent to play Dots and Boxes')
-    parser.add_argument('--verbose', '-v', action='count', default=0, help='Verbose output')
-    parser.add_argument('--quiet', '-q', action='count', default=0, help='Quiet output')
-    parser.add_argument('params', default=configuration.params, type=str, help='eg. "configuration.resnet20')
+    parser = argparse.ArgumentParser(
+        description='Start agent to play Dots and Boxes')
+    parser.add_argument('--verbose', '-v', action='count',
+                        default=0, help='Verbose output')
+    parser.add_argument('--quiet', '-q', action='count',
+                        default=0, help='Quiet output')
+    parser.add_argument('params', default=configuration.params,
+                        type=str, help='eg. "configuration.resnet20')
     parser.add_argument('exp', type=str, help='eg. "resnet-0811-0900')
-    parser.add_argument('ip', metavar='IP', type=str, help='IP to use for server')
-    parser.add_argument('port', metavar='PORT', type=int, help='Port to use for server')
+    parser.add_argument('ip', metavar='IP', type=str,
+                        help='IP to use for server')
+    parser.add_argument('port', metavar='PORT', type=int,
+                        help='Port to use for server')
     args = parser.parse_args(argv)
 
-    logger.setLevel(max(logging.INFO - 10 * (args.verbose - args.quiet), logging.DEBUG))
+    logger.setLevel(
+        max(logging.INFO - 10 * (args.verbose - args.quiet), logging.DEBUG))
     if not logger.hasHandlers():
         logger.addHandler(logging.StreamHandler(sys.stdout))
 
