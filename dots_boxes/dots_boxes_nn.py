@@ -97,15 +97,9 @@ class SimpleNN(nn.Module):
         
         return policy, value
 
-    def save_parameters(self, generation):
-        filename = self.params.nn.chkpts_filename
-        fn = filename.format(generation)
-        logger.info("Model saved to: %s", fn)
-        torch.save(self.state_dict(), fn)
-
     def load_parameters(self, generation, to_device=None):
         filename = self.params.nn.chkpts_filename
         fn = filename.format(generation)
         logger.info("Model loaded from: %s", fn)
-        self.load_state_dict(torch.load(fn, map_location='cpu'))
+        self.load_state_dict(torch.load(fn, map_location='cpu')['model_dict'])
         self.to(to_device)
