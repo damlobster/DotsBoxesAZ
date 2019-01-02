@@ -29,11 +29,12 @@ simple = DotDict({
         "nn_batch_size": 48,
         "nn_batch_timeout": 0.05,
         "nn_batch_builder": nn_batch_builder,
-        "pytorch_devices": ["cuda:1", "cuda:0"], #get_cuda_devices_list(),
+        "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
         "mcts": {
             "mcts_num_read": 200,
             "mcts_cpuct": 4.0,
-            "temperature": {0: 1.0, 8: 1e-50},  # from 8th move we greedly take move with most visit count
+            # from 8th move we greedly take move with most visit count
+            "temperature": {0: 1.0, 8: 1e-50},
             "max_async_searches": 64,
         }
     },
@@ -42,16 +43,16 @@ simple = DotDict({
         "n_games": 10,
         "n_workers": 10,
         "games_per_workers": 1,
-        "self_play_override":{
+        "self_play_override": {
             "reuse_mcts_tree": False,
             "noise": (0.0, 0.0),
-            "mcts":{
-                "mcts_num_read":1600
+            "mcts": {
+                "mcts_num_read": 1600
             }
         }
     },
     "nn": {
-        "model_class":SimpleNN,
+        "model_class": SimpleNN,
         "pytorch_device": "cuda:0",
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
@@ -59,10 +60,10 @@ simple = DotDict({
             "train_split": 0.9,
             "train_batch_size": 2048,
             "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:1e-4}),
+            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20: 1e-4}),
             "lr": 1e-4,
-            "optimizer_momentum":0.9,
-            "weight_decay":1e-4,
+            "optimizer_momentum": 0.9,
+            "weight_decay": 1e-4,
         },
         "model_parameters": None
     }
@@ -88,7 +89,7 @@ resnet20 = DotDict({
         "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
         "mcts": {
             "mcts_num_read": 800,
-            "mcts_cpuct": (1.25, 19652), # CPUCT, CPUCT_BASE
+            "mcts_cpuct": (1.25, 19652),  # CPUCT, CPUCT_BASE
             "temperature": {0: 1, 9: 0.02},
             "max_async_searches": 64,
         }
@@ -98,11 +99,11 @@ resnet20 = DotDict({
         "n_games": 20,
         "n_workers": 10,
         "games_per_workers": 2,
-        "self_play_override":{
+        "self_play_override": {
             "reuse_mcts_tree": False,
             "noise": (0.0, 0.0),
-            "mcts":{
-                "mcts_num_read":800
+            "mcts": {
+                "mcts_num_read": 800
             }
         }
     },
@@ -112,33 +113,33 @@ resnet20 = DotDict({
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "pos_average": False,
-            "symmetries": SymmetriesGenerator(), #lambda boards, pi, z: [boards], [pi], [z]
+            "symmetries": SymmetriesGenerator(),
             "nb_epochs": 4,
-            "max_samples_per_gen": 90*4096, # approx samples for 10 generations
+            "max_samples_per_gen": 90*4096,  # approx samples for 10 generations
             "train_split": 0.9,
             "train_batch_size": 4096,
             "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 1e-1, 20:1e-2, 40:1e-3}),
+            "lr_scheduler": GenerationLrScheduler({0: 1e-1, 20: 1e-2, 40: 1e-3}),
             "lr": 0.1,
             "optimizer_params": {
-                "momentum":0.9,
-                "weight_decay":1e-4,
+                "momentum": 0.9,
+                "weight_decay": 1e-4,
             }
         },
         "model_parameters": {
             "resnet": {
-                "pad_layer0": True,
+                "pad_layer0": False,
                 "in_channels": 3,
-                "nb_channels": 64,
+                "nb_channels": 128,
                 "inner_channels": None,
                 "kernel_size": 3,
-                "nb_blocks": 20,
-                "n_groups": 1
+                "nb_blocks": 10,
+                "n_groups": 4
             },
             "policy_head": {
                 "in_channels": 64,
-                "inner_channels":2,
-                "fc_in": 2*16,
+                "inner_channels": 8,
+                "fc_in": 8*16,
                 "nb_actions": 32,
             },
             "value_head": {
@@ -150,6 +151,7 @@ resnet20 = DotDict({
         }
     }
 })
+
 
 resnet55 = DotDict({
     "data_root": "data/_exp_",
@@ -173,7 +175,7 @@ resnet55 = DotDict({
             "mcts_num_read": 800,
             "mcts_cpuct": 4.0,
             # from 6th move we greedly take move with most visit count
-            "temperature": {0: 1, 6: 0.2, 9:0.05}, #, 15: 1e-50},
+            "temperature": {0: 1, 6: 0.2, 9: 0.05},  # , 15: 1e-50},
             "max_async_searches": 64,
         }
     },
@@ -182,11 +184,11 @@ resnet55 = DotDict({
         "n_games": 20,
         "n_workers": 10,
         "games_per_workers": 2,
-        "self_play_override":{
+        "self_play_override": {
             "reuse_mcts_tree": False,
             "noise": (0.0, 0.0),
-            "mcts":{
-                "mcts_num_read":800
+            "mcts": {
+                "mcts_num_read": 800
             }
         }
     },
@@ -196,12 +198,12 @@ resnet55 = DotDict({
         "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "pos_average": True,
-            "symmetries": SymmetriesGenerator(), #lambda boards, pi, z: [boards], [pi], [z]
+            "symmetries": SymmetriesGenerator(),
             "nb_epochs": 2,
             "train_split": 0.9,
             "train_batch_size": 2048,
             "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20:5e-4,}),
+            "lr_scheduler": GenerationLrScheduler({0: 1e-3, 20: 5e-4, }),
             "lr": None,
             "adam_params": {
                 "betas": (0.9, 0.999),
@@ -217,7 +219,7 @@ resnet55 = DotDict({
             },
             "policy_head": {
                 "in_channels": 128,
-                "inner_channels":4,
+                "inner_channels": 4,
                 "fc_in": 36*4,
                 "nb_actions": 72,
             },
@@ -238,16 +240,16 @@ params.game.init()
 DEFAULT_LOGGING = {
     'version': 1,
     'disable_existing_loggers': True,
-    'formatters': { 
-        'standard': { 
+    'formatters': {
+        'standard': {
             'format': '%(message)s'
         },
     },
-    'handlers': { 
-        'default': { 
+    'handlers': {
+        'default': {
             'class': 'logging.StreamHandler',
             'formatter': 'standard',
-            'stream'  : 'ext://sys.stderr'
+            'stream': 'ext://sys.stderr'
         },
     },
     'loggers': {
@@ -271,7 +273,7 @@ DEFAULT_LOGGING = {
             'handlers': ['default'],
             'level': 'WARNING',
         },
-        'utils.proxies':{
+        'utils.proxies': {
             'handlers': ['default'],
             'level': 'WARNING'
         }

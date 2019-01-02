@@ -47,6 +47,7 @@ class DotDict(dict):
             elif isinstance(v, dict):
                 v.rewrite_str(tag, replacement)
 
+
 class DictWithDefault(dict):
     def __init__(self, lmbda):
         super(DictWithDefault, self).__init__()
@@ -67,14 +68,15 @@ class HDFStoreDataset(data.Dataset):
             df = df.sample(min(n_samples, df.shape[0]))
             cols = df.columns
             features_cols = list(c for c in cols if c.startswith("x_"))
-            
+
             if pos_average:
                 df = df.groupby(features_cols).mean().reset_index()
 
             self.features = df[features_cols].values.astype(np.float32)
             if features_shape:
                 self.features = self.features.reshape(-1, *features_shape)
-            self.policy = df[list(c for c in cols if c.startswith("pi_"))].values.astype(np.float32)
+            self.policy = df[list(c for c in cols if c.startswith(
+                "pi_"))].values.astype(np.float32)
             self.value = df.z.values.astype(np.float32)
             if fake_z is not None:
                 self.value = fake_z(self.features, self.value)
@@ -93,8 +95,10 @@ def write_to_hdf(hdf_file, key, dataframe):
     with pd.HDFStore(hdf_file, mode="a") as store:
         store.append(key, dataframe, format="table")
 
+
 def read_from_hdf(hdf_file, key, where):
     return pd.read_hdf(hdf_file, key, where=where)
+
 
 def get_cuda_devices_list():
     return list(map(lambda id: "cuda:"+str(id), range(torch.cuda.device_count())))
@@ -115,6 +119,7 @@ def elo_rating(elo0, elo1, winner, K=30):
         elo1 = elo1 + K * (1 - p1)
 
     return elo0, elo1
+
 
 def elo_rating2(elo0, elo1, n0, n1, K=30):
     def elo_winning_prob(rating1, rating2):

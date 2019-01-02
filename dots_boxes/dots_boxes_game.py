@@ -6,6 +6,7 @@ import numpy as np
 
 from game import GameState
 
+
 class BoxesState(GameState):
     __slots__ = 'hash', 'board', 'just_played', 'to_play', 'boxes_to_close'
     BOARD_DIM = (3, 3)
@@ -16,8 +17,8 @@ class BoxesState(GameState):
     @staticmethod
     def init_static_fields(dims):
         BoxesState.BOARD_DIM = dims[0]
-        BoxesState.FEATURES_SHAPE = (3, \
-            BoxesState.BOARD_DIM[0]+1, BoxesState.BOARD_DIM[1]+1)
+        BoxesState.FEATURES_SHAPE = (3,
+                                     BoxesState.BOARD_DIM[0]+1, BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_ACTIONS = 2 * \
             (BoxesState.BOARD_DIM[0]+1) * (BoxesState.BOARD_DIM[1]+1)
         BoxesState.NB_BOXES = BoxesState.BOARD_DIM[0] * BoxesState.BOARD_DIM[1]
@@ -29,7 +30,7 @@ class BoxesState(GameState):
         self.board[1, l, :] = 1
         self.board[0, :, c] = 1
         self.just_played = None
-        self.to_play = 1 #! FIXME first player = 0
+        self.to_play = 0
         win_thres = BoxesState.NB_BOXES/2
         self.boxes_to_close = [win_thres, win_thres]
 
@@ -56,7 +57,8 @@ class BoxesState(GameState):
     def play_(self, move):
         p, l, c = np.unravel_index(move, self.board.shape)
         if self.board[p, l, c] != 0:
-            raise ValueError("Illegal move: " + str(move) + "->" + str((p, l, c)) + "\n" + str(self))
+            raise ValueError("Illegal move: " + str(move) +
+                             "->" + str((p, l, c)) + "\n" + str(self))
 
         self.board[p, l, c] = 255
 
@@ -95,7 +97,7 @@ class BoxesState(GameState):
 
     def _check_box(self, l, c):
         edges_idx = ((0, 0, 1, 1), (l, l+1, l, l), (c, c, c, c+1))
-        return self.board[edges_idx].sum()==4*255
+        return self.board[edges_idx].sum() == 4*255
 
     def _update_hash(self, move):
         b, _ = self.hash
@@ -104,7 +106,7 @@ class BoxesState(GameState):
 
     def get_hash(self):
         return self.hash
-        
+
     def __hash__(self):
         return self.hash.__hash__()
 
@@ -138,8 +140,10 @@ class BoxesState(GameState):
             strings.append(s)
         return "\n".join(strings)
 
+
 def nn_batch_builder(*game_states):
     return np.stack([gs[0].get_features() for gs in game_states], axis=0)
+
 
 def moves_to_string(moves, visits_counts=None):
     g = BoxesState()
