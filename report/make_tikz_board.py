@@ -11,7 +11,7 @@ def dot(row, col):
 
 
 class BoxesGameTikz:
-    def __init__(self, rows, columns, bw=False, style="x=.75pt,y=.75pt,yscale=-2,xscale=2,every node/.style={inner sep=0,outer sep=0}"):
+    def __init__(self, rows, columns, bw=False, style="x=.75pt,y=.75pt,yscale=-1.75,xscale=1.75,every node/.style={inner sep=0,outer sep=0}"):
         self.rows = rows
         self.columns = columns
         self.bw = bw
@@ -50,7 +50,7 @@ class BoxesGameTikz:
         with self.pic.path(style="draw,"+self.color(to_play)+style) as draw:
             edge = draw.at(at).line_to(to)
             if label:
-                edge.node(text="\\small" + str(label),
+                edge.node(text="\\tiny" + str(label),
                             style="fill=white,midway,sloped")
 
     def fill_boxes(self, player, *boxes):
@@ -73,17 +73,17 @@ def game_to_tikz(moves, next_move, probs=[], bw=False, dims=(3, 3)):
         if closed:
             tikz.fill_boxes(bs.just_played, *closed)
     probs = np.asarray(probs)
-    max_probs = probs.argsort()[:-5:-1]
+    max_probs = probs.argsort()#[:-5:-1]
     ps = ""
     if max_probs is not None and max_probs.any():
         probs = probs.round(2)
         for i in max_probs:
-            if probs[i] > 0.01 or i == next_move:
+            if probs[i] > 0.05 or i in next_move:
                 p = f"{probs[i]:.2f}".lstrip('0').rstrip('0')
                 if probs[i]==0:
                     p = '.0'
                 ps += f"{i}->{p};"
-                tikz.draw_move(i, bs.to_play if i == next_move else None, p, "" if i == next_move else "gray")
+                tikz.draw_move(i, bs.to_play if i in next_move else None, p, "" if i in next_move else "gray")
     else:
         tikz.draw_move(next_move, bs.to_play, "$\\times$")
 
