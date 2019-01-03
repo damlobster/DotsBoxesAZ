@@ -31,34 +31,11 @@ class MCTSTestCase(unittest.TestCase):
 
     @async_test
     async def test_mcts_nn(self, loop):
-        nn_generation = 15
-        params = configuration.params
-        params.rewrite_str("_exp_", "resnet20_1229")
+        nn_generation = 60
+        params = configuration.resnet
+        params.rewrite_str("_exp_", "resnet20_1230")
         params.self_play.pytorch_devices = "cpu"
         sp_params = params.self_play
-
-        params.nn.model_parameters = {
-            "resnet": {
-                "pad_layer0": True,
-                "in_channels": 3,
-                "nb_channels": 128,
-                "kernel_size": 3,
-                "nb_blocks": 10,
-                "n_groups": 4
-            },
-            "policy_head": {
-                "in_channels": 128,
-                "inner_channels": 16,
-                "fc_in": 256,
-                "nb_actions": 32
-            },
-            "value_head": {
-                "in_channels": 128,
-                "inner_channels": 1,
-                "fc_in": 16,
-                "fc_inner": 12
-            }
-        }
 
         print(params.nn.model_parameters)
 

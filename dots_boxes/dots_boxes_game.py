@@ -8,6 +8,10 @@ from game import GameState
 
 
 class BoxesState(GameState):
+    """
+    The Dots and Boxes game state.
+    """
+
     __slots__ = 'hash', 'board', 'just_played', 'to_play', 'boxes_to_close'
     BOARD_DIM = (3, 3)
     FEATURES_SHAPE = (3, BOARD_DIM[0]+1, BOARD_DIM[1]+1)
@@ -142,6 +146,12 @@ class BoxesState(GameState):
 
 
 def nn_batch_builder(*game_states):
+    """This function create a batch of of features from a list of game states.
+    
+    Returns:
+        [numpy.array] -- the stacked features of shape (N, 3, 4, 4)
+    """
+
     return np.stack([gs[0].get_features() for gs in game_states], axis=0)
 
 
