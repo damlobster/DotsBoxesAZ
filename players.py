@@ -15,7 +15,7 @@ import configuration as cfg
 class AZPlayer(mp.Process):
     def __init__(self, params, time_limit, requ_queue: mp.Queue, resp_queue: mp.Queue):
         super(AZPlayer, self).__init__()
-        params.self_play.mcts.temperature = {0:0}
+        params.self_play.mcts.temperature = {0:1e-5}
         self.params = params
         self.models = {}
         self.time_limit = time_limit

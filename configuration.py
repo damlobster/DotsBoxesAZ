@@ -71,93 +71,10 @@ simple = DotDict({
     }
 })
 
-resnet20 = DotDict({
+resnet = DotDict({
     "data_root": "data/_exp_",
     "hdf_file": "data/_exp_/sp_data.hdf",
     "tensorboard_log": "data/tboard/_exp_",
-    "game": {
-        "clazz": BoxesState,
-        "init": partial(BoxesState.init_static_fields, ((3, 3),)),
-    },
-    "self_play": {
-        "num_games": 1988,
-        "n_workers": 16,
-        "games_per_workers": 125,
-        "reuse_mcts_tree": True,
-        "noise": (0.8, 0.25),  # alpha, coeff
-        "nn_batch_size": 48,
-        "nn_batch_timeout": 0.05,
-        "nn_batch_builder": nn_batch_builder,
-        "pytorch_devices": ["cuda:1", "cuda:0"],  # get_cuda_devices_list(),
-        "mcts": {
-            "mcts_num_read": 800,
-            "mcts_cpuct": (1.25, 19652),  # CPUCT, CPUCT_BASE
-            "temperature": {0: 1, 12: 0.02},
-            "max_async_searches": 64,
-        }
-    },
-    "elo": {
-        "hdf_file": "data/_exp_/elo_data.hdf",
-        "n_games": 20,
-        "n_workers": 10,
-        "games_per_workers": 2,
-        "self_play_override": {
-            "reuse_mcts_tree": False,
-            "noise": (0.0, 0.0),
-            "mcts": {
-                "mcts_num_read": 800
-            }
-        }
-    },
-    "nn": {
-        "model_class": ResNetZero,
-        "pytorch_device": "cuda:0",
-        "chkpts_filename": "data/_exp_/model_gen{}.pt",
-        "train_params": {
-            "pos_average": False,
-            "symmetries": SymmetriesGenerator(),
-            "nb_epochs": 4,
-            "max_samples_per_gen":100*4096,  # approx samples for 10 generations
-            "train_split": 0.9,
-            "train_batch_size": 4096,
-            "val_batch_size": 2048,
-            "lr_scheduler": GenerationLrScheduler({0: 2e-1, 20: 2e-2, 40: 2e-3}),
-            "lr": 0.2,
-            "optimizer_params": {
-                "momentum": 0.9,
-                "weight_decay": 1e-4,
-            }
-        },
-        "model_parameters": {
-            "resnet": {
-                "pad_layer0": False,
-                "in_channels": 3,
-                "nb_channels": 128,
-                "inner_channels": None,
-                "kernel_size": 3,
-                "nb_blocks": 10,
-                "n_groups": 4
-            },
-            "policy_head": {
-                "in_channels": 128,
-                "inner_channels": 8,
-                "fc_in": 8*16,
-                "nb_actions": 32,
-            },
-            "value_head": {
-                "in_channels": 128,
-                "inner_channels": 1,
-                "fc_in": 1*16,
-                "fc_inner": 8
-            },
-        }
-    }
-})
-
-resnet = DotDict({
-    "data_root": "data/resnet20_1230",
-    "hdf_file": "data/resnet20_1230/sp_data.hdf",
-    "tensorboard_log": "data/tboard/resnet20_1230",
     "game": {
         "clazz": BoxesState,
         "init": partial(BoxesState.init_static_fields, ((3, 3),)),
@@ -192,7 +109,7 @@ resnet = DotDict({
         }
     },
     "elo": {
-        "hdf_file": "data/resnet20_1230/elo_data.hdf",
+        "hdf_file": "data/_exp_/elo_data.hdf",
         "n_games": 20,
         "n_workers": 10,
         "games_per_workers": 2,
@@ -210,7 +127,7 @@ resnet = DotDict({
     "nn": {
         "model_class": ResNetZero,
         "pytorch_device": "cuda:0",
-        "chkpts_filename": "data/resnet20_1230/model_gen{}.pt",
+        "chkpts_filename": "data/_exp_/model_gen{}.pt",
         "train_params": {
             "pos_average": False,
             "symmetries": SymmetriesGenerator(),

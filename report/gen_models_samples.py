@@ -13,15 +13,16 @@ from utils.proxies import AsyncBatchedProxy
 from make_tikz_board import game_to_tikz
 
 SAVE_TIKZ_GEN = [1, 20, 60]
-RUN = "resnet20_1230"
-NUM_SEARCHES = 800
-MAX_SEARCHES = 800
+RUN = "simple_0102"
+NUM_SEARCHES = 8000
+MAX_SEARCHES = 80000
 DIRICHLET = (0.0, 0.0)
 CPUCT = (1.25, 19652)
 
-params = configuration.resnet
-params.rewrite_str("data/", "../data/")
-params.self_play.pytorch_devices = "cpu"
+params = configuration.simple
+params.rewrite_str("data/", f"../data/")
+params.rewrite_str("_exp_", RUN)
+params.self_play.pytorch_devices = "cuda:0"
 
 async def test_mcts_nn(loop, generation):
     sp_params = params.self_play
@@ -30,7 +31,7 @@ async def test_mcts_nn(loop, generation):
     model.load_parameters(generation, to_device=params.self_play.pytorch_devices)
 
     nn_wrapper = NeuralNetWrapper(model, params)
-    nnet = AsyncBatchedProxy(nn_wrapper, batch_size=sp_params.nn_batch_size,
+    nnet = AsyncBatchedProxy(nn_wrapper, batch_size=48,
                                 timeout=sp_params.nn_batch_timeout,
                                 batch_builder=sp_params.nn_batch_builder,
                                 cache_size=400000)
@@ -59,7 +60,7 @@ async def test_mcts_nn(loop, generation):
                 f.write(tikz)
 
         root_node = create_root_uct_node(sample.game)
-        p = await UCT_search(root_node, NUM_SEARCHES, nnet, max_pending_evals=1, dirichlet=DIRICHLET, cpuct=CPUCT)
+        p = await UCT_search(root_node, NUM_SEARCHES, nnet, max_pending_evals=64, dirichlet=DIRICHLET, cpuct=CPUCT)
         p = p / (p.sum() or 1.0)
         mcts_corrects += p.argmax() in sample.next_moves
         if generation in SAVE_TIKZ_GEN:
