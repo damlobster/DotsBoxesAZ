@@ -8,9 +8,12 @@ import configuration
 from nn import NeuralNetWrapper
 from utils.proxies import AsyncBatchedProxy
 
+PARAMS = configuration.simple
+EXP = "simple_0105_2"
+
 NUM_SEARCHES = 800
 MAX_SEARCHES = 800
-MCTS_TREE_LEVELS = 3
+MCTS_TREE_LEVELS = -1
 DIRICHLET = (0.0, 0.0)
 CPUCT = (1.25, 19652)
 SAMPLE_IDS = None #[5,6,7]
@@ -20,21 +23,37 @@ class MCTSTestCase(unittest.TestCase):
 
     @async_test
     async def test_mcts_mock_nn(self, loop):
+        N_ROLLOUTS = 100
         print("test_mcts_mock_nn ...")
 
         async def nn(state):
+            def sample_move(state):
+                moves = state.get_valid_moves(as_indices=True)
+                return np.random.choice(moves, 1)[0]
+
+            v = state.get_result()
+            if v is None:
+                v = 0
+                for i in range(N_ROLLOUTS):
+                    move = sample_move(state)
+                    s = state.play(move)
+                    while s.get_result() is None:
+                        s.play_(sample_move(s))
+                    res = s.get_result()
+                    v += res if state.to_play == s.to_play else -res
+
             pi = np.array(list(map(int, state.get_valid_moves())))
             pi = pi/pi.sum()
-            return (pi, state.get_result() or 0)
+            return (pi, v/N_ROLLOUTS)
 
         await _run_tests(nn, NUM_SEARCHES, MAX_SEARCHES)
 
     @async_test
     async def test_mcts_nn(self, loop):
         nn_generation = 60
-        params = configuration.resnet
-        params.rewrite_str("_exp_", "resnet20_1230")
-        params.self_play.pytorch_devices = "cpu"
+        params = PARAMS
+        params.rewrite_str("_exp_", EXP)
+        params.self_play.pytorch_devices = "cuda:0"
         sp_params = params.self_play
 
         print(params.nn.model_parameters)
