@@ -109,7 +109,7 @@ class SelfPlay(object):
                 moves_idxs.append(move_i)
                 moves.append(node.move)
                 players.append(node.game_state.to_play)
-                values.append(z if node.game_state.just_played == winner else -z)
+                values.append(z if node.game_state.to_play == winner else -z)
                 stats.append(node.get_tree_stats())
                 vs = node.child_number_visits.sum()
                 policies.append(node.child_number_visits / (vs or 1.0))

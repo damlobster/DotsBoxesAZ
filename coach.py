@@ -145,7 +145,8 @@ def learn_to_play(params, from_generation, to_generation, last_model_elo=1200, s
             selfplay(params, from_generation)
         start_train = False
 
-        where = f"generation>={max(0, min((from_generation-4)//2, 20))}"
+        ws = max(4, min(4+(from_generation-4)//2, 20))
+        where = f"generation>={max(0, from_generation-ws)}"
         params.nn.train_params.lr = params.nn.train_params.lr_scheduler(from_generation)
         last_batch_idx = train_nn(params, from_generation, where, writer)
         print(f"Last training batch idx= {last_batch_idx}", flush=True)

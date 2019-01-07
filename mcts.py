@@ -23,6 +23,7 @@ class TreeRoot():
         self.first_node = None
         self.child_total_value = collections.defaultdict(float)
         self.child_number_visits = collections.defaultdict(int)
+        self.child_player_changed = collections.defaultdict(int)
         self.deepness_correction = 0
         self.deepness = 0
         self.max_deepness = 0
@@ -38,7 +39,7 @@ class TreeRoot():
 class UCTNode():
     __slots__ = ['game_state', 'move', 'is_expanded', 'parent', 'children',
                  'child_priors', 'child_total_value', 'child_number_visits',
-                 'is_terminal', "deepness"]
+                 'child_player_changed', 'is_terminal', "deepness"]
 
     CPUCT = 1.25
     CPUCT_BASE = 19652
@@ -56,6 +57,8 @@ class UCTNode():
         self.child_total_value = np.zeros(
             game_state.get_actions_size(), dtype=np.float32)
         self.child_number_visits = np.zeros(
+            game_state.get_actions_size(), dtype=np.int32)
+        self.child_player_changed = np.ones(
             game_state.get_actions_size(), dtype=np.int32)
 
         if tree_stats_enabled:
@@ -77,6 +80,14 @@ class UCTNode():
     def total_value(self, value):
         self.parent.child_total_value[self.move] = value
 
+    @property
+    def player_switched(self):
+        return self.parent.child_player_changed[self.move]
+
+    @player_switched.setter
+    def player_switched(self, value):
+        self.parent.child_player_changed[self.move] = value
+
     def children_ucb_score(self):
         pb_c = math.log((self.number_visits + UCTNode.CPUCT_BASE +
                          1) / UCTNode.CPUCT_BASE) + UCTNode.CPUCT
@@ -84,6 +95,7 @@ class UCTNode():
 
         prior_score = pb_c * self.child_priors
         value_score = self.child_total_value / (1 + self.child_number_visits)
+        value_score *= self.child_player_changed
         return prior_score + value_score
 
     def best_child(self):
@@ -104,11 +116,12 @@ class UCTNode():
     def expand(self, child_priors):
         self.is_expanded = True
         self.child_priors = child_priors
+        self.player_switched = 1 if self.game_state.to_play == self.game_state.just_played else -1
 
     def backup(self, search_path: list, value_estimate: float):
         to_play = self.game_state.to_play
         for i, node in enumerate(search_path):
-            v = value_estimate if node.game_state.just_played == to_play else -value_estimate
+            v = value_estimate * (1 if node.game_state.to_play == to_play else -1)
             node.total_value += v + VIRTUAL_LOSS
             node.number_visits += 1
 

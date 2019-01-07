@@ -197,7 +197,7 @@ class NeuralNetWrapper():
 
         logger.warning(f"lr = {params.lr}")
         writer.add_scalar("lr", params.lr, batch_i)
-        for epoch in range(params.nb_epochs):
+        for epoch in range(min(2*generation, params.nb_epochs)):
 
             self.model.train(True)
             tr_loss = 0
@@ -259,10 +259,11 @@ class NeuralNetWrapper():
                     loss_v += _loss_v
                     loss_pi += _loss_pi
 
-                loss_v /= val_n_batches
-                loss_pi /= val_n_batches
-                val_loss = loss_v + loss_pi
-                writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i)
+                if val_n_batches > 0:
+                    loss_v /= val_n_batches 
+                    loss_pi /= val_n_batches
+                    val_loss = loss_v + loss_pi
+                    writer.add_scalars('loss', {'pi/eval': loss_pi, 'v/eval':loss_v, 'total/eval':val_loss}, batch_i)
 
             writer.add_scalars('accuracy', {'v/train': tr_acc_correct/tr_acc_total, 'v/eval':val_acc_correct/val_acc_total}, batch_i)
             writer.add_scalar('generation', generation, batch_i)
